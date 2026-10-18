@@ -109,6 +109,10 @@ export type ActionResult = {
   failures: { id: string; error: string }[];
   undo: string | null;
 };
+export type SearchDiagnostics = {
+  alternatives: { query: string; count: number }[];
+  corrections: { query: string; count: number }[];
+};
 export type Contact = { name: string | null; address: string | null };
 
 const reads = new Map<string, Promise<unknown>>();
@@ -123,6 +127,13 @@ function read<T>(key: string, action: () => Promise<T>): Promise<T> {
 // Tokens and network URLs never cross this bridge. Real mail is deliberately
 // kept out of the prototype's localStorage/SQLite key-value state and exports.
 export const outlookApi = {
+  searchDiagnostics: (query: string, alternatives: string[]) =>
+    read(`diagnostics:${query}:${JSON.stringify(alternatives)}`, () =>
+      invoke<SearchDiagnostics>("outlook_search_diagnostics", {
+        query,
+        alternatives,
+      }),
+    ),
   writingLibrary: (id: string) =>
     invoke<WritingLibrary>("outlook_writing_library", { id }),
   saveWritingLibrary: (id: string, library: WritingLibrary) =>

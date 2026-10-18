@@ -9,6 +9,7 @@ pub struct Query {
 struct Token {
     text: String,
     phrase: bool,
+    raw: String,
 }
 fn tokens(query: &str) -> Result<Vec<Token>, String> {
     if query.len() > 4000 {
@@ -16,17 +17,20 @@ fn tokens(query: &str) -> Result<Vec<Token>, String> {
     }
     let mut result = Vec::new();
     let mut text = String::new();
+    let mut raw = String::new();
     let mut quoted = false;
     let mut phrase = false;
     for c in query.chars() {
         if c == '"' {
+            raw.push(c);
             quoted = !quoted;
             phrase = true;
         } else if !quoted && (c.is_whitespace() || c == '(' || c == ')') {
-            if !text.is_empty() {
+            if !text.is_empty() || !raw.is_empty() {
                 result.push(Token {
                     text: std::mem::take(&mut text),
                     phrase,
+                    raw: std::mem::take(&mut raw),
                 });
                 phrase = false;
             }
@@ -34,17 +38,19 @@ fn tokens(query: &str) -> Result<Vec<Token>, String> {
                 result.push(Token {
                     text: c.to_string(),
                     phrase: false,
+                    raw: c.to_string(),
                 });
             }
         } else {
             text.push(c);
+            raw.push(c);
         }
     }
     if quoted {
         return Err("Close the quotation mark to search for an exact phrase.".into());
     }
-    if !text.is_empty() {
-        result.push(Token { text, phrase });
+    if !text.is_empty() || !raw.is_empty() {
+        result.push(Token { text, phrase, raw });
     }
     if result.len() > 100 {
         return Err("Use up to 100 search terms.".into());
@@ -150,13 +156,31 @@ impl Parser<'_> {
             return Err(format!("Add a value after {field}:"));
         }
         let value = if value.eq_ignore_ascii_case("me")
-            && matches!(field, "from" | "to" | "cc" | "bcc" | "person")
-        {
+            && matches!(
+                field,
+                "from"
+                    | "to"
+                    | "cc"
+                    | "bcc"
+                    | "person"
+                    | "fromaddr"
+                    | "toaddr"
+                    | "ccaddr"
+                    | "bccaddr"
+                    | "personaddr"
+            ) {
             self.account.to_string()
         } else {
             value.to_string()
         };
         let out=match field.to_ascii_lowercase().as_str() {
+            "fromaddr"=>{ let p=self.bind(value.to_lowercase()); format!("lower(json_extract(m.json,'$.from.emailAddress.address'))={p}") },
+            "toaddr"|"ccaddr"|"bccaddr"|"personaddr"=>{
+                let paths = match field { "toaddr"=>vec!["toRecipients"], "ccaddr"=>vec!["ccRecipients"], "bccaddr"=>vec!["bccRecipients"], _=>vec!["toRecipients","ccRecipients","bccRecipients"] };
+                let mut sources=paths.iter().map(|path|format!("SELECT lower(json_extract(value,'$.emailAddress.address')) address FROM json_each(m.json,'$.{path}')")).collect::<Vec<_>>();
+                if field=="personaddr" {sources.push("SELECT lower(json_extract(m.json,'$.from.emailAddress.address')) address".into());}
+                let p=self.bind(value.to_lowercase()); format!("{p} IN ({})",sources.join(" UNION ALL "))
+            },
             "is"=>match value.as_str(){"other"=>"COALESCE(json_extract(m.json,'$.inferenceClassification'),'other')!='focused'".into(),"unread"=>"m.read=0".into(),"read"=>"m.read=1".into(),"important"=>"json_extract(m.json,'$.inferenceClassification')='focused'".into(),_=>return Err("Use is:unread, is:read or is:important.".into())},
             "has"=>match value.as_str(){"attachment"|"attachments"=>"m.attached=1".into(),_=>return Err("Use has:attachment.".into())},
             "before"|"after"|"on"=>{if !date(&value){return Err("Dates must be valid YYYY-MM-DD dates.".into());} let p=self.bind(value);match field{"before"=>format!("date(m.received,'localtime')<{p}"),"after"=>format!("date(m.received,'localtime')>={p}"),_=>format!("date(m.received,'localtime')={p}")}},
@@ -174,6 +198,78 @@ impl Parser<'_> {
         };
         Ok(if negated { format!("NOT ({out})") } else { out })
     }
+}
+
+// Only suggest spelling changes for positive, unquoted keyword atoms. A NOT
+// subtree, fields, phrases and punctuation remain literal.
+pub fn spelling_words(query: &str) -> Result<Vec<String>, String> {
+    let mut words = Vec::new();
+    let mut skip = false;
+    let mut depth = 0usize;
+    for token in tokens(query)? {
+        if depth > 0 {
+            if token.raw == "(" {
+                depth += 1;
+            } else if token.raw == ")" {
+                depth -= 1;
+            }
+            continue;
+        }
+        if token.raw == "NOT" {
+            skip = true;
+            continue;
+        }
+        if skip {
+            skip = false;
+            if token.raw == "(" {
+                depth = 1;
+            }
+            continue;
+        }
+        if !token.phrase
+            && token.text.chars().all(char::is_alphabetic)
+            && !matches!(token.text.as_str(), "AND" | "OR")
+            && (4..=40).contains(&token.text.chars().count())
+            && !words.contains(&token.text)
+        {
+            words.push(token.text);
+            if words.len() == 3 {
+                break;
+            }
+        }
+    }
+    Ok(words)
+}
+pub fn replace_keyword(query: &str, word: &str, replacement: &str) -> Result<String, String> {
+    // Retain the position of every operator, group and quoted field value.
+    let mut skip = false;
+    let mut depth = 0usize;
+    Ok(tokens(query)?
+        .into_iter()
+        .map(|t| {
+            let negative = skip || depth > 0;
+            if t.raw == "NOT" {
+                skip = true;
+            } else if depth > 0 {
+                if t.raw == "(" {
+                    depth += 1;
+                } else if t.raw == ")" {
+                    depth -= 1;
+                }
+            } else if skip {
+                skip = false;
+                if t.raw == "(" {
+                    depth = 1;
+                }
+            }
+            if !negative && !t.phrase && t.raw == word {
+                replacement.to_string()
+            } else {
+                t.raw
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" "))
 }
 pub fn parse(query: &str, account: &str) -> Result<Query, String> {
     let tokens = tokens(query)?;
@@ -222,5 +318,21 @@ mod tests {
             assert!(parse(q, "a@b.test").is_err(), "{q}");
         }
         assert!(parse("NOT is:read", "a@b.test").is_ok());
+        assert!(parse("\"\"", "a@b.test").is_err());
+        assert!(parse("fromaddr:\"alex@example.test\"", "a@b.test").is_ok());
+    }
+    #[test]
+    fn spelling_never_changes_fields_phrases_or_negative_subtrees() {
+        let q = "from:invoce invoce NOT (invoce OR reciept) -invoce \"invoce\"";
+        assert_eq!(spelling_words(q).unwrap(), vec!["invoce"]);
+        assert_eq!(
+            replace_keyword(q, "invoce", "invoice").unwrap(),
+            "from:invoce invoice NOT ( invoce OR reciept ) -invoce \"invoce\""
+        );
+        assert!(
+            spelling_words("NOT (secret OR invoices) from:Alex subject:\"invoice\"")
+                .unwrap()
+                .is_empty()
+        );
     }
 }

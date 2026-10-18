@@ -32,6 +32,16 @@ pub struct SearchPage {
     pub suggestions: Vec<String>,
     pub status: IndexStatus,
 }
+#[derive(Serialize)]
+pub struct SearchAlternative {
+    pub query: String,
+    pub count: usize,
+}
+#[derive(Serialize, Default)]
+pub struct SearchDiagnostics {
+    pub alternatives: Vec<SearchAlternative>,
+    pub corrections: Vec<SearchAlternative>,
+}
 pub fn text(html: &str) -> String {
     let doc = scraper::Html::parse_fragment(html);
     doc.tree
@@ -503,6 +513,80 @@ impl MailIndex {
             suggestions,
             status: self.status(account)?,
         })
+    }
+    pub fn diagnostics(
+        &self,
+        account: &str,
+        original: &str,
+        alternatives: &[String],
+    ) -> Result<SearchDiagnostics, String> {
+        if alternatives.len() > 8 {
+            return Err("Use up to eight search alternatives".into());
+        }
+        let c = self.0.lock().map_err(|_| "Mail index busy")?;
+        let count = |text: &str| -> Result<usize, String> {
+            let q = query::parse(text, account)?;
+            let mut values = vec![rusqlite::types::Value::Text(account.into())];
+            values.extend(q.values);
+            c.query_row(
+                &format!(
+                    "SELECT count(*) FROM messages m WHERE m.account=? AND ({})",
+                    q.sql
+                ),
+                params_from_iter(values.iter()),
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n as usize)
+            .map_err(|_| "Could not check search alternatives".into())
+        };
+        let mut result = SearchDiagnostics::default();
+        // The mailbox may have changed while the empty-search UI was loading.
+        if count(original)? > 0 {
+            return Ok(result);
+        }
+        for query in alternatives {
+            result.alternatives.push(SearchAlternative {
+                query: query.clone(),
+                count: count(query)?,
+            });
+        }
+        for word in query::spelling_words(original)? {
+            let length = word.chars().count() as i64;
+            let mut statement = c.prepare("SELECT term FROM mail_vocab WHERE length(term) BETWEEN ?1 AND ?2 ORDER BY doc DESC LIMIT 2000").map_err(|_| "Could not check spelling")?;
+            let candidates = statement
+                .query_map(params![(length - 2).max(1), length + 2], |r| {
+                    r.get::<_, String>(0)
+                })
+                .map_err(|_| "Could not check spelling")?;
+            let mut checked = 0;
+            for term in candidates.flatten() {
+                if term == word.to_lowercase()
+                    || distance(&term, &word.to_lowercase()) > if length > 7 { 2 } else { 1 }
+                {
+                    continue;
+                }
+                let own:bool=c.query_row("SELECT EXISTS(SELECT 1 FROM mail_fts JOIN messages m ON m.rowid=mail_fts.rowid WHERE m.account=?1 AND mail_fts MATCH ?2)",params![account,format!("\"{}\"",term.replace('"',"\"\""))], |r|r.get(0)).unwrap_or(false);
+                if !own {
+                    continue;
+                }
+                checked += 1;
+                let changed = query::replace_keyword(original, &word, &term)?;
+                let matches = count(&changed)?;
+                if matches > 0 && !result.corrections.iter().any(|a| a.query == changed) {
+                    result.corrections.push(SearchAlternative {
+                        query: changed,
+                        count: matches,
+                    });
+                }
+                if result.corrections.len() >= 3 || checked >= 8 {
+                    break;
+                }
+            }
+            if result.corrections.len() >= 3 {
+                break;
+            }
+        }
+        Ok(result)
     }
     pub fn conversation(&self, account: &str, id: &str) -> Result<Vec<serde_json::Value>, String> {
         let Some(raw) = self.raw(account, id)? else {
@@ -1118,6 +1202,89 @@ mod tests {
             )
             .unwrap();
         assert_eq!(results.total, 2);
+    }
+    #[test]
+    fn diagnostics_count_saved_mail_and_preserve_filters_in_spelling_suggestions() {
+        let i = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
+        i.upsert("a", "inbox", &[mail("one", "Invoice", "payment")])
+            .unwrap();
+        i.upsert("b", "inbox", &[mail("private", "Secretword", "private")])
+            .unwrap();
+        let d = i
+            .diagnostics(
+                "a",
+                "from:alex invoice -has:attachment",
+                &[
+                    "from:alex invoice".into(),
+                    "invoice -has:attachment".into(),
+                    "from:alex -has:attachment".into(),
+                ],
+            )
+            .unwrap();
+        assert_eq!(
+            d.alternatives.iter().map(|a| a.count).collect::<Vec<_>>(),
+            vec![1, 0, 0]
+        );
+        let d = i
+            .diagnostics("a", "from:alex invoce has:attachment", &[])
+            .unwrap();
+        assert!(d
+            .corrections
+            .iter()
+            .any(|a| a.query == "from:alex invoice has:attachment" && a.count == 1));
+        assert!(i
+            .diagnostics("a", "secreword", &[])
+            .unwrap()
+            .corrections
+            .is_empty());
+        assert!(i
+            .diagnostics("a", "invoice", &["is:unread".into()])
+            .unwrap()
+            .alternatives
+            .is_empty());
+        assert!(i
+            .diagnostics("a", "absent", &vec!["is:unread".into(); 9])
+            .is_err());
+        assert!(i.diagnostics("a", "(broken", &[]).is_err());
+        let d = i
+            .diagnostics("a", "absent", &["(is:read OR is:unread)".into()])
+            .unwrap();
+        assert_eq!(d.alternatives[0].count, 1);
+    }
+    #[test]
+    fn selected_people_match_exact_addresses_in_each_recipient_field() {
+        let i = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
+        let mut exact = mail("exact", "hello", "hello");
+        exact["ccRecipients"] =
+            serde_json::json!([{"emailAddress":{"name":"Cc","address":"cc@example.test"}}]);
+        exact["bccRecipients"] =
+            serde_json::json!([{"emailAddress":{"name":"Bcc","address":"bcc@example.test"}}]);
+        let mut misleading = exact.clone();
+        misleading["id"] = "misleading".into();
+        misleading["from"]["emailAddress"]["address"] = "alex@example.test.attacker".into();
+        misleading["toRecipients"] = serde_json::json!([]);
+        misleading["ccRecipients"] = serde_json::json!([]);
+        misleading["bccRecipients"] = serde_json::json!([]);
+        i.upsert("a", "inbox", &[exact.clone(), misleading])
+            .unwrap();
+        i.upsert("b", "inbox", &[exact]).unwrap();
+        for query in [
+            "fromaddr:\"ALEX@example.test\"",
+            "toaddr:me@example.test",
+            "ccaddr:cc@example.test",
+            "bccaddr:bcc@example.test",
+            "personaddr:bcc@example.test",
+        ] {
+            let page = i.search("a", query, 0, "relevance").unwrap();
+            assert_eq!(page.total, 1, "{query}");
+            assert_eq!(page.messages[0].id, "exact");
+        }
+        assert_eq!(
+            i.search("a", "NOT (fromaddr:alex@example.test)", 0, "newest")
+                .unwrap()
+                .total,
+            1
+        );
     }
     #[test]
     fn partial_delta_updates_preserve_bodies_and_old_folder_removals_do_not_delete_moves() {

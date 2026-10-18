@@ -3257,3 +3257,75 @@ mark {
   border-color: var(--blue);
   box-shadow: 0 0 0 2px var(--blue-soft);
 }
+.search-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 15px 10px;
+  max-height: 104px;
+  overflow: auto;
+}
+.search-condition {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 100%;
+}
+.search-condition span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-assumptions, .search-people {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 7px 15px 10px;
+  color: var(--muted);
+}
+.search-people summary { cursor: pointer; color: var(--text); }
+.search-people > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.search-person {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  padding: 7px 10px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.search-person span { color: var(--muted); }
+.search-recovery { width: min(620px, 100%); margin: 8px auto; font-size: 11px; }
+.search-recovery p { margin: 9px 0; }
+.search-recovery-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 6px 0;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.search-recovery-option span:first-child { overflow-wrap: anywhere; min-width: 0; }
+.search-recovery-option span:last-child { flex-shrink: 0; color: var(--muted); }
+.search-condition:hover, .search-person:hover, .search-recovery-option:hover { border-color: var(--blue); }
+.search-controls .list-toolbar { flex-wrap: wrap; }
+.search-controls .soft-button[aria-pressed="true"] { background: var(--blue-soft); color: var(--blue); }
+.search-edit-dates { margin: 0 15px 5px; padding: 0; }
+.search-help > div { max-height: min(65vh, calc(100dvh - 240px)); overflow-y: auto; }

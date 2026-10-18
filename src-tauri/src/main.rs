@@ -349,6 +349,7 @@ fn main() {
             outlook_commands::outlook_folders,
             outlook_commands::outlook_mark_read,
             outlook_commands::outlook_search,
+            outlook_commands::outlook_search_diagnostics,
             outlook_commands::outlook_index_status,
             outlook_commands::outlook_index_control,
             outlook_commands::outlook_sync,

@@ -19,6 +19,8 @@ vi.mock("./outlook", () => ({
     action: vi.fn(),
     undo: vi.fn(),
     search: vi.fn(),
+    contacts: vi.fn(),
+    searchDiagnostics: vi.fn(),
   },
 }));
 let host: HTMLDivElement;
@@ -34,6 +36,11 @@ const summary = {
 };
 
 beforeEach(() => {
+  vi.mocked(outlookApi.contacts).mockResolvedValue([]);
+  vi.mocked(outlookApi.searchDiagnostics).mockResolvedValue({
+    alternatives: [],
+    corrections: [],
+  });
   clearOutlookPlaces();
   vi.mocked(outlookApi.indexStatus).mockResolvedValue({
     messages: 100,
@@ -87,6 +94,57 @@ const click = async (button: HTMLButtonElement) => {
 };
 
 describe("personal Outlook reader", () => {
+  it("uses related wording only when enabled and shows the expanded conditions", async () => {
+    vi.useFakeTimers();
+    vi.mocked(outlookApi.search).mockResolvedValue({
+      messages: [summary],
+      hasMore: false,
+      total: 1,
+      snippets: {},
+      suggestions: [],
+      status: {
+        messages: 100,
+        folders: 3,
+        pending: 0,
+        missingFiles: 0,
+        lastSync: 1,
+        error: null,
+      },
+    });
+    await act(async () =>
+      root.render(
+        <OutlookInbox
+          account={account}
+          dark={false}
+          query="hotel booking from Alex"
+          compose={() => {}}
+        />,
+      ),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(350));
+    expect(outlookApi.search).toHaveBeenLastCalledWith(
+      "hotel booking from:Alex",
+      0,
+      "relevance",
+    );
+    await click(
+      Array.from(host.querySelectorAll("button")).find(
+        (b) => b.textContent === "Related words",
+      )!,
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(350));
+    const expanded =
+      "(hotel OR accommodation OR lodging) (booking OR reservation) from:Alex";
+    expect(outlookApi.search).toHaveBeenLastCalledWith(
+      expanded,
+      0,
+      "relevance",
+    );
+    expect(host.querySelector(".search-interpretation code")?.textContent).toBe(
+      expanded,
+    );
+    expect(host.textContent).toContain("Local dictionary enabled");
+  });
   it("searches the whole mailbox with visible coverage and paginates results", async () => {
     vi.useFakeTimers();
     const status = {

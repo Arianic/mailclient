@@ -142,6 +142,26 @@ pub async fn outlook_search(
     Ok(page)
 }
 #[tauri::command]
+pub async fn outlook_search_diagnostics(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    query: String,
+    alternatives: Vec<String>,
+) -> Result<outlook::index::SearchDiagnostics, String> {
+    crate::main_window(&window)?;
+    let account = app
+        .state::<outlook::OutlookService>()
+        .draft_account()
+        .await?
+        .to_lowercase();
+    tokio::task::spawn_blocking(move || {
+        app.state::<MailIndex>()
+            .diagnostics(&account, &query, &alternatives)
+    })
+    .await
+    .map_err(|_| "Could not check search alternatives")?
+}
+#[tauri::command]
 pub async fn outlook_index_status(
     app: tauri::AppHandle,
     window: WebviewWindow,

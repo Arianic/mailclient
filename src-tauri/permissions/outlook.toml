@@ -1,7 +1,7 @@
 [[permission]]
 identifier = "allow-outlook-reader"
 description = "The main local Mail window may connect personal Outlook, read paged mail, open compose windows and download approved message resources."
-commands.allow = ["outlook_status", "outlook_connect", "outlook_cancel", "outlook_disconnect", "outlook_inbox", "outlook_message", "outlook_folders", "outlook_mark_read", "open_outlook_compose", "outlook_drafts", "outlook_attachments", "outlook_load_images", "outlook_download_attachment", "outlook_download_image", "outlook_search", "outlook_index_status", "outlook_index_control", "outlook_sync", "outlook_cached_folders", "outlook_action", "outlook_undo", "outlook_conversation", "outlook_contacts", "outlook_discard_draft"]
+commands.allow = ["outlook_status", "outlook_connect", "outlook_cancel", "outlook_disconnect", "outlook_inbox", "outlook_message", "outlook_folders", "outlook_mark_read", "open_outlook_compose", "outlook_drafts", "outlook_attachments", "outlook_load_images", "outlook_download_attachment", "outlook_download_image", "outlook_search", "outlook_search_diagnostics", "outlook_index_status", "outlook_index_control", "outlook_sync", "outlook_cached_folders", "outlook_action", "outlook_undo", "outlook_conversation", "outlook_contacts", "outlook_discard_draft"]
 
 [[permission]]
 identifier = "allow-outlook-compose"

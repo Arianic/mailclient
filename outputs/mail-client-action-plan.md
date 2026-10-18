@@ -1,5 +1,9 @@
 # Personal mail client — action plan
 
+## Progress — search guidance without AI
+
+The user opted out of AI for search. The next refinement adds conversational sender grammar and date assumptions, editable condition/date controls, exact local contact choices, an optional shipped related-word dictionary, and counted spelling/filter-removal suggestions for empty searches. No AI or model downloads. 159 frontend and 52 Rust tests plus frontend/Linux builds pass; browser fixtures verify both themes and the new controls. See [behavior and limits](../docs/search.md) and [checkpoint](prototype-status.md).
+
 ## Progress — familiar-phrase search
 
 The local interpreter now combines full people names and alternatives/exclusions, message states, folders, subject/body/filename requests and richer English date ranges into visible filters. Quotes and explicit query syntax are preserved; search consumes no AI/Plus allowance. 120 frontend and 49 Rust tests plus frontend/Linux builds pass. See [supported phrases and boundaries](../docs/search.md) and [verification checkpoint](prototype-status.md).

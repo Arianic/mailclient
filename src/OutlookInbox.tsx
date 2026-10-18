@@ -24,6 +24,8 @@ import { defaultOutlookFolder } from "./OutlookFolders";
 import { MessageContent, htmlText } from "./MessageContent";
 import { MailActions } from "./MailActions";
 import { SearchControls } from "./SearchControls";
+import { SearchRecovery } from "./SearchRecovery";
+import { expandRelatedWords } from "./search-structure";
 import { interpretSearch } from "./search-query";
 export { htmlText };
 type ThreadMessage = OutlookSummary & OutlookMessage;
@@ -38,6 +40,7 @@ type Snapshot = {
   scroll: number;
   snippets: Record<string, string>;
   total: number;
+  related: boolean;
 };
 const places = new Map<string, Snapshot>();
 export function clearOutlookPlaces() {
@@ -137,8 +140,8 @@ export function OutlookInbox({
       restored?.snippets || {},
     ),
     [total, setTotal] = useState(restored?.total || 0),
-    [suggestions, setSuggestions] = useState<string[]>([]),
     [sort, setSort] = useState(restored?.sort || "relevance"),
+    [related, setRelated] = useState(restored?.related || false),
     [checked, setChecked] = useState<Set<string>>(new Set()),
     [notice, setNotice] = useState(""),
     [undo, setUndo] = useState<string | null>(null),
@@ -163,6 +166,7 @@ export function OutlookInbox({
       snippets,
       total,
       busy,
+      related,
     });
   state.current = {
     view,
@@ -175,9 +179,13 @@ export function OutlookInbox({
     snippets,
     total,
     busy,
+    related,
   };
   const searching = forceSearch || !!query.trim();
-  const canonical = interpretSearch(query).query;
+  const interpreted = interpretSearch(query).query;
+  const canonical = related
+    ? expandRelatedWords(interpreted).query
+    : interpreted;
   const load = async (older = false, refresh = false) => {
     const generation = ++request.current;
     setBusy(true);
@@ -237,7 +245,6 @@ export function OutlookInbox({
         );
         setTotal(result.total);
         setStatus(result.status);
-        setSuggestions(result.suggestions);
       }
       setInbox((current) =>
         older && current
@@ -270,7 +277,6 @@ export function OutlookInbox({
     setInbox(null);
     setSnippets({});
     setTotal(0);
-    setSuggestions([]);
     setError("");
     if (searching) {
       setBusy(true);
@@ -284,7 +290,7 @@ export function OutlookInbox({
     return () => {
       request.current++;
     };
-  }, [view, query, sort, forceSearch]);
+  }, [view, query, sort, forceSearch, related]);
   useEffect(
     () => () => {
       request.current++;
@@ -670,6 +676,9 @@ export function OutlookInbox({
                 sort={sort}
                 onSort={setSort}
                 status={status}
+                canonical={canonical}
+                related={related}
+                onRelatedChange={setRelated}
               />
             ) : (
               <div className="list-toolbar">
@@ -761,20 +770,12 @@ export function OutlookInbox({
                   {inbox.hasMore && (
                     <span>Load older messages to look further back.</span>
                   )}
-                  {!!suggestions.length && (
-                    <div>
-                      Did you mean{" "}
-                      {suggestions.map((word) => (
-                        <button
-                          className="text-button"
-                          key={word}
-                          onClick={() => onQueryChange(word)}
-                        >
-                          {word}
-                        </button>
-                      ))}
-                      ?
-                    </div>
+                  {searching && !error && (
+                    <SearchRecovery
+                      query={canonical}
+                      status={status}
+                      onQuery={onQueryChange}
+                    />
                   )}
                   {searching && (
                     <button

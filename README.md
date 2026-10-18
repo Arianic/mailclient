@@ -24,9 +24,9 @@ The current appearance uses a polished opaque fallback. Compositor blur, OS auto
 
 ## Search that goes beyond the loaded inbox
 
-![Mailbox-wide search results with snippets and folder labels in light mode](docs/images/search-results-light.jpg)
+![Local related-word search matching an accommodation reservation in light mode](docs/images/search-dictionary-light.jpg)
 
-*Search preview with synthetic data. Results show matching text and their source folder; mail actions include Undo.*
+*Search preview with synthetic data. The optional local dictionary expands “hotel booking” to related wording. Conditions remain visible and removable.*
 
 The initial scan walks each folder's message pages, then establishes incremental change tracking. Saved messages remain searchable offline. Indexing progress, Outlook's reported folder-item count and incomplete coverage stay visible. **Rescan entire mailbox** restarts the scan without clearing saved mail or drafts.
 
@@ -41,9 +41,12 @@ emails from alex about invoice last month
 unread emails from Alex Morgan or Sam Jones without attachments
 emails between September 1 and September 30
 messages file named invoice.pdf
+Could you find PDFs Alex sent last September, excluding anything about refunds?
 ```
 
 Search runs locally, with **no AI calls or Plus usage**. Familiar English requests combine full names, sender alternatives/exclusions, message state, folders, filenames and date ranges into visible filters. Quoted text and explicit filters stay literal. Attachment filenames are indexed; text inside attached files and OCR are not. There is no 1,000-message search-result cap. Outlook's folder-item total can include non-email items, so it is not an exact email count.
+
+Remove individual conditions, edit interpreted date ranges, choose an exact contact address, or enable the optional **Related words** dictionary. Empty searches offer measured filter removals and spelling corrections that preserve the rest of your query. Everything stays on the computer, without models or AI services.
 
 [Search syntax, indexing coverage and cache controls →](docs/search.md)
 
@@ -111,7 +114,7 @@ npm run build
 
 For a browser-only design preview, run `npm run dev`. Normal browser views use synthetic sample mail and never send. The development-only `/?outlookPreview` reader and `/?outlookPreview=compose&outlookCompose=preview-draft` composer fixtures exercise the connected interface with synthetic data. These fixtures are excluded from production builds.
 
-The latest search checkpoint passed **120 frontend tests and 49 Rust tests**, plus the production frontend and Linux executable builds. Checks cover phrase interpretation, search pagination and recovery, private-data boundaries, draft persistence, HTML handling, send-state protections and writing tools. Both themes were checked with synthetic browser data; the preceding writing milestone also passed an isolated software-rendered WSLg startup. See [native development checks](docs/linux-desktop.md) and [development checkpoints](outputs/prototype-status.md).
+The latest search checkpoint passed **159 frontend tests and 52 Rust tests**, plus the production frontend and Linux executable builds. Checks cover phrase interpretation, exact people, measured search alternatives, spelling and dictionary expansion, search pagination and recovery, private-data boundaries, drafts, HTML handling, send protection and writing tools. Both themes were checked with synthetic browser data; native startup is checked separately in software-rendered WSLg. See [native development checks](docs/linux-desktop.md) and [development checkpoints](outputs/prototype-status.md).
 
 CachyOS/GNOME interaction checks and real-account round trips remain necessary for new features. Automated tests never send actual mail. WSLg startup and browser previews do not establish full GNOME compatibility.
 

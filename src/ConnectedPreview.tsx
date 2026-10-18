@@ -5,6 +5,7 @@ import { Moon, Sun, Search } from "lucide-react";
 import { OutlookInbox } from "./OutlookInbox";
 import { outlookApi, type OutlookSummary } from "./outlook";
 import { initialMail } from "./data";
+import { fixtureSearch } from "./search-fixture";
 import icon from "../src-tauri/icons/icon.png";
 import { OutlookComposer } from "./OutlookComposer";
 import { IndexSettings } from "./IndexSettings";
@@ -113,9 +114,19 @@ const messages: OutlookSummary[] = Array.from({ length: 140 }, (_, index) => {
   const sample = initialMail[index % initialMail.length];
   return {
     id: `preview-${index}`,
-    subject: `${index % 4 === 1 ? "Invoice for September booking" : sample.subject}${index >= initialMail.length ? ` · ${index + 1}` : ""}`,
+    subject:
+      index === 0
+        ? "Accommodation reservation"
+        : `${index % 4 === 1 ? "Invoice for September booking" : sample.subject}${index >= initialMail.length ? ` · ${index + 1}` : ""}`,
     from: {
-      emailAddress: { name: sample.sender, address: "sender@example.test" },
+      emailAddress:
+        index % 4 === 1
+          ? {
+              name: index % 8 === 1 ? "Alex Morgan" : "Alex Rivera",
+              address:
+                index % 8 === 1 ? "alex@example.test" : "rivera@example.test",
+            }
+          : { name: sample.sender, address: "sender@example.test" },
     },
     receivedDateTime: "2026-09-18T10:00:00Z",
     parentFolderId: index % 5 === 1 ? "folder-0" : "inbox",
@@ -124,7 +135,7 @@ const messages: OutlookSummary[] = Array.from({ length: 140 }, (_, index) => {
     ],
     conversationId: `thread-${index}`,
     isRead: index % 3 === 0,
-    hasAttachments: true,
+    hasAttachments: index % 7 !== 0,
     inferenceClassification: index % 2 ? "other" : "focused",
   };
 });
@@ -147,6 +158,7 @@ outlookApi.cachedFolders = async () => outlookApi.folders();
 outlookApi.contacts = async (query) =>
   [
     { name: "Alex Morgan", address: "alex@example.test" },
+    { name: "Alex Rivera", address: "rivera@example.test" },
     { name: "Maya Chen", address: "maya@example.test" },
   ].filter((contact) =>
     `${contact.name} ${contact.address}`
@@ -174,21 +186,7 @@ outlookApi.inbox = async (
   };
 };
 outlookApi.search = async (query, offset = 0, sort = "relevance") => {
-  const words = query
-    .replace(
-      /(?:from|to|subject|body|filename|after|before|folder|is|has):(?:"[^"]*"|\S+)/g,
-      "",
-    )
-    .replaceAll('"', "")
-    .trim()
-    .toLowerCase();
-  let all = messages.filter(
-    (message) =>
-      !words ||
-      `${message.subject} ${message.from?.emailAddress.name}`
-        .toLowerCase()
-        .includes(words),
-  );
+  let all = fixtureSearch(query, messages);
   if (sort === "oldest") all = [...all].reverse();
   return {
     messages: all.slice(offset, offset + 10),
@@ -200,10 +198,27 @@ outlookApi.search = async (query, offset = 0, sort = "relevance") => {
         "Your September invoice includes the booking reference, payment details and attached receipt.",
       ]),
     ),
-    suggestions: all.length ? [] : ["invoice"],
+    suggestions: !all.length && query === "invoce" ? ["invoice"] : [],
     status: await outlookApi.indexStatus(),
   };
 };
+outlookApi.searchDiagnostics = async (query, alternatives) => ({
+  alternatives: alternatives.map((query) => ({
+    query,
+    count: fixtureSearch(query, messages).length,
+  })),
+  corrections: /\binvoce\b/.test(query)
+    ? [
+        {
+          query: query.replace(/\binvoce\b/g, "invoice"),
+          count: fixtureSearch(
+            query.replace(/\binvoce\b/g, "invoice"),
+            messages,
+          ).length,
+        },
+      ].filter((a) => a.count > 0)
+    : [],
+});
 const savedActions = new Map<string, typeof messages>();
 outlookApi.action = async (ids, action, destination) => {
   const before = messages
