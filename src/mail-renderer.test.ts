@@ -53,3 +53,21 @@ describe("untrusted email rendering", () => {
     expect(result).not.toMatch(/http-equiv="refresh"|<base|attacker.example/);
   });
 });
+
+it("loads only approved raster replacements while retaining the iframe restrictions", () => {
+  const source =
+    '<p>Hello</p><img src="https://image.example/logo"><img src="https://tracker.example/pixel">';
+  const output = mailDocument(source, false, false, {
+    "https://image.example/logo": "data:image/png;base64,aGVsbG8=",
+  });
+  expect(output).toContain("data:image/png;base64,aGVsbG8=");
+  expect(output).not.toContain("https://tracker.example");
+  expect(output).not.toContain("https://image.example");
+  expect(output).toContain("script-src 'none'");
+  expect(output).toContain("img-src data:");
+  expect(
+    mailDocument(source, false, false, {
+      "https://image.example/logo": "javascript:alert(1)",
+    }),
+  ).not.toContain("javascript:");
+});

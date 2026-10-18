@@ -33,8 +33,10 @@ export function OutlookSettings({
             <span>{status.account.email}</span>
           </div>
           <p className="settings-note">
-            Read-only access. Your sign-in is saved in GNOME Keyring. Messages
-            are cleared when you quit Mail.
+            {status.canSend
+              ? "Reading and sending are enabled."
+              : "Reading is enabled. Approve sending below to send new messages and replies."}{" "}
+            Your sign-in is saved in GNOME Keyring.
           </p>
           <div className="outlook-actions">
             <button
@@ -51,6 +53,22 @@ export function OutlookSettings({
             >
               Disconnect
             </button>
+            <button
+              className="soft-button"
+              disabled={!!busy}
+              onClick={() => void connect(true)}
+            >
+              {busy === "connecting"
+                ? "Waiting for Microsoft…"
+                : status.canSend
+                  ? "Review sending permission"
+                  : "Enable sending"}
+            </button>
+            {busy === "connecting" && (
+              <button className="text-button" onClick={() => void cancel()}>
+                Cancel sign-in
+              </button>
+            )}
           </div>
         </>
       ) : (
@@ -123,8 +141,8 @@ export function OutlookSettings({
             </ol>
             <p>
               Approve read access on Microsoft’s page. Mail also requests
-              permission to stay signed in. Sending and changing messages are
-              unavailable in this first connection.
+              permission to stay signed in. Once connected, use Enable sending
+              to separately approve Mail.Send for new messages and replies.
             </p>
           </details>
         </>

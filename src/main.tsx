@@ -49,7 +49,9 @@ import {
 import "./styles.css";
 import { SafeMessage } from "./SafeMessage";
 import { ThemedSelect } from "./ThemedSelect";
-import { useOutlook } from "./outlook";
+import { useOutlook, outlookApi } from "./outlook";
+import { OutlookComposer } from "./OutlookComposer";
+import { OutlookDrafts } from "./OutlookDrafts";
 import { OutlookSettings } from "./OutlookSettings";
 import { OutlookInbox } from "./OutlookInbox";
 import {
@@ -472,8 +474,13 @@ function App() {
     initialEvents,
   );
   const [view, setView] = useState<
-    "mail" | "outlook" | "calendar" | "settings"
-  >("mail");
+    "mail" | "outlook" | "drafts" | "calendar" | "settings"
+  >(nativeDesktop ? "outlook" : "mail");
+  useEffect(() => {
+    if (!nativeDesktop || !outlook.ready) return;
+    setView(outlook.status.account ? "outlook" : "settings");
+    setSidebar(false);
+  }, [outlook.ready, outlook.status.account?.email]);
   const [folder, setFolder] = useState("inbox");
   const [tab, setTab] = useState("important");
   const [sidebar, setSidebar] = useState(false);
@@ -515,8 +522,15 @@ function App() {
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        if (view !== "outlook") setView("mail");
-        searchRef.current?.focus();
+        if (view !== "outlook")
+          setView(
+            nativeDesktop
+              ? outlook.status.account
+                ? "outlook"
+                : "settings"
+              : "mail",
+          );
+        requestAnimationFrame(() => searchRef.current?.focus());
       }
       if (e.key === "Escape") {
         setSelected(null);
@@ -528,7 +542,7 @@ function App() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [view]);
+  }, [view, outlook.status.account?.email]);
   const patch = (id: string, data: Partial<Mail>) =>
     setMails((ms) => ms.map((m) => (m.id === id ? { ...m, ...data } : m)));
   const openMail = (mail: Mail) => {
@@ -538,6 +552,18 @@ function App() {
     setMore(false);
   };
   const navigate = (next: string) => {
+    if (nativeDesktop) {
+      setView(
+        outlook.status.account
+          ? next === "drafts"
+            ? "drafts"
+            : "outlook"
+          : "settings",
+      );
+      setSidebar(false);
+      setQuery("");
+      return;
+    }
     setFolder(next);
     setView("mail");
     setSelected(null);
@@ -630,7 +656,15 @@ function App() {
     waiting: "Waiting",
   };
   const setSection = (section: "mail" | "calendar") => {
-    setView(section === "mail" && outlook.status.account ? "outlook" : section);
+    setView(
+      section === "mail" && nativeDesktop
+        ? outlook.status.account
+          ? "outlook"
+          : "settings"
+        : section === "mail" && outlook.status.account
+          ? "outlook"
+          : section,
+    );
     setSelected(null);
     setMore(false);
   };
@@ -692,7 +726,9 @@ function App() {
           <div className="app-switch" aria-label="Application view">
             <button
               className={
-                view === "mail" || view === "outlook" ? "selected" : ""
+                view === "mail" || view === "outlook" || view === "drafts"
+                  ? "selected"
+                  : ""
               }
               onClick={() => setSection("mail")}
             >
@@ -701,6 +737,12 @@ function App() {
             </button>
             <button
               className={view === "calendar" ? "selected" : ""}
+              disabled={nativeDesktop}
+              title={
+                nativeDesktop
+                  ? "Google Calendar is not connected yet"
+                  : undefined
+              }
               onClick={() => setSection("calendar")}
             >
               <CalendarDays size={14} />
@@ -727,7 +769,15 @@ function App() {
           <IconButton
             label="Open settings"
             onClick={() => {
-              setView(view === "settings" ? "mail" : "settings");
+              setView(
+                view === "settings"
+                  ? nativeDesktop
+                    ? outlook.status.account
+                      ? "outlook"
+                      : "settings"
+                    : "mail"
+                  : "settings",
+              );
               setSelected(null);
             }}
             active={view === "settings"}
@@ -736,18 +786,15 @@ function App() {
           </IconButton>
           <button
             className="compose-button"
-            onClick={() => openCompose()}
-            disabled={view === "outlook"}
-            title={
-              view === "outlook"
-                ? "Sending is unavailable in read-only Outlook"
-                : undefined
+            onClick={() =>
+              nativeDesktop
+                ? void outlookApi
+                    .openCompose()
+                    .catch((error) => showToast(String(error)))
+                : openCompose()
             }
-            aria-label={
-              view === "outlook"
-                ? "Compose unavailable in read-only Outlook"
-                : "Compose new message"
-            }
+            disabled={nativeDesktop && !outlook.status.account}
+            aria-label="Compose new message"
           >
             <SquarePen size={17} />
             <span>Compose</span>
@@ -784,64 +831,81 @@ function App() {
                     Outlook inbox
                   </button>
                 )}
-                <div className="sidebar-label">Sample mailboxes</div>
-                {[
-                  ["inbox", Inbox, "Inbox"],
-                  ["drafts", FileText, "Drafts"],
-                  ["starred", Star, "Starred"],
-                  ["archive", Archive, "Archive"],
-                  ["trash", Trash2, "Trash"],
-                ].map(([id, Icon, label]) => {
-                  const I = Icon as typeof Inbox;
-                  return (
-                    <button
-                      key={id as string}
-                      className={`nav-item ${folder === id && view === "mail" ? "selected" : ""}`}
-                      onClick={() => navigate(id as string)}
-                    >
-                      <I size={17} />
-                      {label as string}
-                      {id === "inbox" && (
-                        <span className="nav-count">{unread}</span>
-                      )}
-                      {id === "drafts" && drafts.length > 0 && (
-                        <span className="nav-count">{drafts.length}</span>
-                      )}
-                    </button>
-                  );
-                })}
-                <div className="sidebar-label">Follow up</div>
-                <button className="nav-item" onClick={() => navigate("needs")}>
-                  <ArrowUpRight size={17} />
-                  Needs reply
-                </button>
-                <button
-                  className="nav-item"
-                  onClick={() => navigate("waiting")}
-                >
-                  <Clock3 size={17} />
-                  Waiting
-                </button>
-                <div className="sidebar-label">Sample accounts</div>
-                {Object.entries(accounts).map(([id, a]) => (
+                {nativeDesktop && (
                   <button
-                    key={id}
-                    className="nav-item"
-                    onClick={() => {
-                      setAccount(id);
-                      navigate("inbox");
-                    }}
+                    className={`nav-item ${view === "drafts" ? "selected" : ""}`}
+                    disabled={!outlook.status.account}
+                    onClick={() => navigate("drafts")}
                   >
-                    <span
-                      className="account-dot"
-                      style={{ background: a.color }}
-                    />
-                    {a.label}
-                    {id === "work" && (
-                      <ShieldCheck size={13} className="muted" />
-                    )}
+                    <FileText size={17} />
+                    Drafts
                   </button>
-                ))}
+                )}
+                {!nativeDesktop && (
+                  <>
+                    <div className="sidebar-label">Sample mailboxes</div>
+                    {[
+                      ["inbox", Inbox, "Inbox"],
+                      ["drafts", FileText, "Drafts"],
+                      ["starred", Star, "Starred"],
+                      ["archive", Archive, "Archive"],
+                      ["trash", Trash2, "Trash"],
+                    ].map(([id, Icon, label]) => {
+                      const I = Icon as typeof Inbox;
+                      return (
+                        <button
+                          key={id as string}
+                          className={`nav-item ${folder === id && view === "mail" ? "selected" : ""}`}
+                          onClick={() => navigate(id as string)}
+                        >
+                          <I size={17} />
+                          {label as string}
+                          {id === "inbox" && (
+                            <span className="nav-count">{unread}</span>
+                          )}
+                          {id === "drafts" && drafts.length > 0 && (
+                            <span className="nav-count">{drafts.length}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    <div className="sidebar-label">Follow up</div>
+                    <button
+                      className="nav-item"
+                      onClick={() => navigate("needs")}
+                    >
+                      <ArrowUpRight size={17} />
+                      Needs reply
+                    </button>
+                    <button
+                      className="nav-item"
+                      onClick={() => navigate("waiting")}
+                    >
+                      <Clock3 size={17} />
+                      Waiting
+                    </button>
+                    <div className="sidebar-label">Sample accounts</div>
+                    {Object.entries(accounts).map(([id, a]) => (
+                      <button
+                        key={id}
+                        className="nav-item"
+                        onClick={() => {
+                          setAccount(id);
+                          navigate("inbox");
+                        }}
+                      >
+                        <span
+                          className="account-dot"
+                          style={{ background: a.color }}
+                        />
+                        {a.label}
+                        {id === "work" && (
+                          <ShieldCheck size={13} className="muted" />
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
                 <div className="sidebar-bottom">
                   <ShieldCheck size={15} />
                   <span>Work mail stays out of cloud AI</span>
@@ -850,18 +914,25 @@ function App() {
             </>
           )}
           <main className="main-content">
+            {nativeDesktop && view === "outlook" && !outlook.ready && (
+              <div className="empty-state" role="status">
+                Opening your inbox…
+              </div>
+            )}
+            {view === "drafts" && outlook.status.account && <OutlookDrafts />}
             {view === "outlook" && outlook.status.account && (
               <OutlookInbox
                 account={outlook.status.account}
                 dark={dark}
                 query={query}
-                sampleInbox={() => {
-                  setView("mail");
-                  setQuery("");
-                }}
+                compose={(replyId) =>
+                  void outlookApi
+                    .openCompose(null, replyId || null)
+                    .catch((error) => showToast(String(error)))
+                }
               />
             )}
-            {view === "mail" && !selected && (
+            {!nativeDesktop && view === "mail" && !selected && (
               <>
                 <div className="page-heading">
                   <div>
@@ -1149,7 +1220,7 @@ function App() {
                 </div>
               </>
             )}
-            {view === "mail" && current && (
+            {!nativeDesktop && view === "mail" && current && (
               <div className="conversation">
                 <div className="reading-toolbar">
                   <button
@@ -1659,18 +1730,17 @@ function App() {
                   <section className="settings-card">
                     <h2>
                       <CircleHelp size={18} />
-                      About this preview
+                      {nativeDesktop ? "About Mail" : "About this preview"}
                     </h2>
                     <p>
-                      Explore the inbox, open conversations, save drafts in a
-                      separate window, and create sample calendar events.
+                      {nativeDesktop
+                        ? "Your Outlook inbox opens automatically. Compose and reply in separate windows; drafts save on this device."
+                        : "Explore the inbox, open conversations, save drafts in a separate window, and create sample calendar events."}
                     </p>
                     <p>
-                      Changes are saved only on this device. Mail delivery,
-                      background synchronization, rich text editing, AI, and
-                      other service connections are future implementation
-                      stages. Personal Outlook now has a separate read-only
-                      connection.
+                      {nativeDesktop
+                        ? "Important follows Outlook’s Focused Inbox. Older messages load on request. Rich text, sending attachments, scheduled delivery, offline inbox caching and other account providers are still being developed."
+                        : "The browser uses sample data. Real account connections are available in the Linux app."}
                     </p>
                     <button
                       className="soft-button"
@@ -1714,15 +1784,19 @@ function App() {
         <footer className="window-footer">
           <button onClick={() => navigate("inbox")}>
             <span className="small-status-dot" />
-            {view === "outlook" ? "Outlook · read-only" : "Sample inbox"}
+            {nativeDesktop ? "Inbox" : "Sample inbox"}
           </button>
           <span>
             {view === "calendar"
               ? "Your time, thoughtfully arranged."
-              : "All accounts. One calm place."}
+              : nativeDesktop
+                ? outlook.status.account
+                  ? "Connected to Outlook"
+                  : "Connect an account to get started"
+                : "All accounts. One calm place."}
           </span>
           <button onClick={() => setView("settings")}>
-            {view === "outlook" ? "Account settings" : "Local sample data"}
+            {nativeDesktop ? "Settings" : "Local sample data"}
             <ChevronRight size={12} />
           </button>
         </footer>
@@ -1919,13 +1993,31 @@ function Empty({
   );
 }
 const root = createRoot(document.getElementById("root")!);
+function RealComposer() {
+  useTheme();
+  return <OutlookComposer controls={<TrafficLights />} />;
+}
 void storage
   .initialize()
-  .then(() => {
+  .then(async () => {
+    if (
+      import.meta.env.DEV &&
+      new URLSearchParams(location.search).has("outlookPreview")
+    ) {
+      const { ConnectedPreview } = await import("./ConnectedPreview");
+      root.render(<ConnectedPreview />);
+      return;
+    }
     root.render(
       <React.StrictMode>
         <StorageNotice />
-        {isComposer ? <Composer /> : <App />}
+        {new URLSearchParams(location.search).has("outlookCompose") ? (
+          <RealComposer />
+        ) : isComposer ? (
+          <Composer />
+        ) : (
+          <App />
+        )}
       </React.StrictMode>,
     );
   })

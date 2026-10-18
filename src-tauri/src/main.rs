@@ -2,6 +2,7 @@
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 mod outlook;
+mod outlook_commands;
 #[allow(dead_code)]
 mod privacy;
 mod storage;
@@ -20,7 +21,7 @@ async fn outlook_status(
     app: tauri::AppHandle,
     window: WebviewWindow,
 ) -> Result<outlook::Status, String> {
-    main_window(&window)?;
+    outlook_commands::account_window(&window)?;
     app.state::<outlook::OutlookService>().status().await
 }
 #[tauri::command]
@@ -28,10 +29,11 @@ async fn outlook_connect(
     app: tauri::AppHandle,
     window: WebviewWindow,
     client_id: String,
+    enable_sending: Option<bool>,
 ) -> Result<outlook::Status, String> {
     main_window(&window)?;
     app.state::<outlook::OutlookService>()
-        .connect(client_id, |url| {
+        .connect(client_id, enable_sending.unwrap_or(false), |url| {
             app.opener()
                 .open_url(url, None::<&str>)
                 .map_err(|_| "Could not open your browser for Microsoft sign-in".into())
@@ -47,15 +49,29 @@ fn outlook_cancel(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), St
 #[tauri::command]
 async fn outlook_disconnect(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
     main_window(&window)?;
+    if app
+        .webview_windows()
+        .keys()
+        .any(|label| label.starts_with("outlook-compose-"))
+    {
+        return Err(
+            "Close your Outlook compose windows before disconnecting so drafts can finish saving."
+                .into(),
+        );
+    }
     app.state::<outlook::OutlookService>().disconnect().await
 }
 #[tauri::command]
 async fn outlook_inbox(
     app: tauri::AppHandle,
     window: WebviewWindow,
+    view: String,
+    older: bool,
 ) -> Result<outlook::Inbox, String> {
     main_window(&window)?;
-    app.state::<outlook::OutlookService>().inbox().await
+    app.state::<outlook::OutlookService>()
+        .inbox(view, older)
+        .await
 }
 #[tauri::command]
 async fn outlook_message(
@@ -72,7 +88,7 @@ fn load_workspace(
     app: tauri::AppHandle,
     window: WebviewWindow,
 ) -> Result<storage::Snapshot, String> {
-    trusted_window(&window)?;
+    outlook_commands::account_window(&window).or_else(|_| trusted_window(&window))?;
     let state = app.state::<storage::WorkspaceStore>();
     let database = state
         .0
@@ -176,7 +192,7 @@ fn quit_app(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> 
     if app
         .webview_windows()
         .keys()
-        .any(|label| label.starts_with("compose-"))
+        .any(|label| label.starts_with("compose-") || label.starts_with("outlook-compose-"))
     {
         return Err(
             "Close your compose windows before quitting Mail so drafts can finish saving".into(),
@@ -196,6 +212,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_opener::Builder::new()
                 .open_js_links_on_click(false)
@@ -213,6 +230,10 @@ fn main() {
                 .map_err(std::io::Error::other)?;
             app.manage(storage::WorkspaceStore(std::sync::Mutex::new(database)));
             app.manage(outlook::OutlookService::new().map_err(std::io::Error::other)?);
+            app.manage(
+                outlook::drafts::DraftStore::open(&directory.join("outlook-drafts.sqlite"))
+                    .map_err(std::io::Error::other)?,
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -226,7 +247,16 @@ fn main() {
             outlook_cancel,
             outlook_disconnect,
             outlook_inbox,
-            outlook_message
+            outlook_message,
+            outlook_commands::open_outlook_compose,
+            outlook_commands::outlook_drafts,
+            outlook_commands::outlook_load_draft,
+            outlook_commands::outlook_save_draft,
+            outlook_commands::outlook_send_draft,
+            outlook_commands::outlook_attachments,
+            outlook_commands::outlook_load_images,
+            outlook_commands::outlook_download_attachment,
+            outlook_commands::outlook_download_image
         ])
         .on_page_load(|webview, payload| {
             #[cfg(debug_assertions)]

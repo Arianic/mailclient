@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Paperclip, RefreshCw } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  Image,
+  Paperclip,
+  RefreshCw,
+  Reply,
+} from "lucide-react";
 import { SafeMessage } from "./SafeMessage";
 import { sanitizeMailHtml } from "./mail-renderer";
 import {
@@ -8,6 +15,8 @@ import {
   type OutlookInbox as Inbox,
   type OutlookMessage,
   type OutlookSummary,
+  type OutlookAttachment,
+  type OutlookImages,
 } from "./outlook";
 
 function date(value: string, full = false) {
@@ -28,33 +37,54 @@ function sender(message: OutlookSummary) {
     "Unknown sender"
   );
 }
-
 export function OutlookInbox({
   account,
   dark,
   query,
-  sampleInbox,
+  compose,
 }: {
   account: OutlookAccount;
   dark: boolean;
   query: string;
-  sampleInbox: () => void;
+  compose: (replyId?: string) => void;
 }) {
+  const [view, setView] = useState<"important" | "other">("important");
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [selected, setSelected] = useState<OutlookSummary | null>(null);
   const [body, setBody] = useState<OutlookMessage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [files, setFiles] = useState<OutlookAttachment[] | null>(null);
+  const [images, setImages] = useState<OutlookImages | null>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
+  const [mediaStatus, setMediaStatus] = useState("");
   const list = useRef<HTMLDivElement>(null);
   const savedScroll = useRef(0);
   const request = useRef(0);
-  const load = async () => {
+  const selectedId = useRef<string | null>(null);
+  selectedId.current = selected?.id || null;
+  const load = async (older = false) => {
     const generation = ++request.current;
     setBusy(true);
     setError("");
     try {
-      const next = await outlookApi.inbox();
-      if (generation === request.current) setInbox(next);
+      const next = await outlookApi.inbox(view, older);
+      if (generation === request.current)
+        setInbox((current) =>
+          older && current
+            ? {
+                ...next,
+                messages: Array.from(
+                  new Map(
+                    [...current.messages, ...next.messages].map((message) => [
+                      message.id,
+                      message,
+                    ]),
+                  ).values(),
+                ),
+              }
+            : next,
+        );
     } catch (error) {
       if (generation === request.current) setError(String(error));
     } finally {
@@ -62,34 +92,45 @@ export function OutlookInbox({
     }
   };
   useEffect(() => {
+    setInbox(null);
+    savedScroll.current = 0;
     void load();
     return () => {
       request.current++;
     };
-  }, []);
+  }, [view]);
   useEffect(() => {
     if (!selected && list.current) list.current.scrollTop = savedScroll.current;
   }, [selected]);
+  const back = () => {
+    request.current++;
+    setSelected(null);
+    setBody(null);
+    setBusy(false);
+    setError("");
+    setFiles(null);
+    setImages(null);
+    setMediaStatus("");
+    setMediaBusy(false);
+  };
   useEffect(() => {
-    const back = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && selected) {
-        request.current++;
-        setSelected(null);
-        setBody(null);
-        setError("");
-        setBusy(false);
-      }
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && selected) back();
     };
-    window.addEventListener("keydown", back);
-    return () => window.removeEventListener("keydown", back);
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
   }, [selected]);
   const open = async (message: OutlookSummary) => {
-    savedScroll.current = list.current?.scrollTop || 0;
+    if (!selected) savedScroll.current = list.current?.scrollTop || 0;
     const generation = ++request.current;
     setSelected(message);
     setBody(null);
     setBusy(true);
     setError("");
+    setImages(null);
+    setFiles(null);
+    setMediaStatus("");
+    setMediaBusy(false);
     try {
       const next = await outlookApi.message(message.id);
       if (generation === request.current) setBody(next);
@@ -99,13 +140,22 @@ export function OutlookInbox({
       if (generation === request.current) setBusy(false);
     }
   };
-  const back = () => {
-    request.current++;
-    setSelected(null);
-    setBody(null);
-    setBusy(false);
-    setError("");
+  const media = async (action: () => Promise<string>) => {
+    const id = selectedId.current;
+    setMediaBusy(true);
+    setMediaStatus("");
+    try {
+      const status = await action();
+      if (selectedId.current === id) setMediaStatus(status);
+    } catch (error) {
+      if (selectedId.current === id) setMediaStatus(String(error));
+    } finally {
+      if (selectedId.current === id) setMediaBusy(false);
+    }
   };
+  const approved = Object.fromEntries(
+    images?.images.map((image) => [image.source, image.dataUrl]) || [],
+  );
   const visible =
     inbox?.messages.filter((message) =>
       `${sender(message)} ${message.subject || ""}`
@@ -113,7 +163,10 @@ export function OutlookInbox({
         .includes(query.toLocaleLowerCase()),
     ) || [];
   return (
-    <div className="outlook-reader" aria-label="Personal Outlook reader">
+    <div
+      className={`outlook-reader ${selected ? "is-reading" : ""}`}
+      aria-label="Personal Outlook inbox"
+    >
       {selected ? (
         <>
           <div className="outlook-reader-toolbar">
@@ -121,9 +174,14 @@ export function OutlookInbox({
               <ArrowLeft size={15} />
               Inbox
             </button>
-            <span className="subtle">
-              Read-only · no changes made to your mailbox
-            </span>
+            <button
+              className="soft-button"
+              onClick={() => compose(selected.id)}
+            >
+              <Reply size={15} />
+              Reply
+            </button>
+            <span className="subtle">Opening leaves read status unchanged</span>
           </div>
           <section className="outlook-reading-surface">
             <h1>{selected.subject || "(No subject)"}</h1>
@@ -154,27 +212,126 @@ export function OutlookInbox({
               </div>
             )}
             {body && (
-              <SafeMessage
-                key={body.id}
-                html={
-                  body.body.contentType.toLowerCase() === "html"
-                    ? body.body.content
-                    : undefined
-                }
-                text={
-                  body.body.contentType.toLowerCase() === "text"
-                    ? body.body.content
-                    : htmlText(body.body.content)
-                }
-                dark={dark}
-              />
-            )}
-            {selected.hasAttachments && (
-              <p className="settings-note">
-                <Paperclip size={12} />
-                This message has attachments. Attachment downloads are coming in
-                a later step.
-              </p>
+              <>
+                <div className="message-media-controls">
+                  <button
+                    className="text-button"
+                    disabled={mediaBusy || !!images}
+                    onClick={() =>
+                      void media(async () => {
+                        const next = await outlookApi.images(selected.id);
+                        if (selectedId.current === selected.id) setImages(next);
+                        return `${next.images.length} image${next.images.length === 1 ? "" : "s"} loaded${next.blocked ? ` · ${next.blocked} unavailable or blocked` : ""}`;
+                      })
+                    }
+                  >
+                    <Image size={14} />
+                    {mediaBusy
+                      ? "Loading…"
+                      : images
+                        ? "Images loaded"
+                        : "Load images"}
+                  </button>
+                  <span className="subtle">
+                    Remote images can reveal that you opened this email.
+                  </span>
+                  <button
+                    className="text-button"
+                    disabled={mediaBusy}
+                    onClick={() =>
+                      files
+                        ? setFiles(null)
+                        : void media(async () => {
+                            const next = await outlookApi.attachments(
+                              selected.id,
+                            );
+                            if (selectedId.current === selected.id)
+                              setFiles(next);
+                            return next.length
+                              ? "Choose a file to download."
+                              : "No file attachments.";
+                          })
+                    }
+                  >
+                    <Paperclip size={14} />
+                    {files ? "Hide attachments" : "Attachments"}
+                  </button>
+                </div>
+                {mediaStatus && (
+                  <p className="media-status" role="status">
+                    {mediaStatus}
+                  </p>
+                )}
+                {files && files.length > 0 && (
+                  <div className="attachment-downloads">
+                    {files.map((file) => (
+                      <button
+                        key={file.id}
+                        className="soft-button"
+                        disabled={mediaBusy}
+                        onClick={() =>
+                          void media(async () =>
+                            (await outlookApi.downloadAttachment(
+                              selected.id,
+                              file.id,
+                            ))
+                              ? "File saved."
+                              : "Download canceled.",
+                          )
+                        }
+                      >
+                        <Download size={13} />
+                        {file.name}
+                        <span className="subtle">
+                          {Math.max(1, Math.round(file.size / 1024))} KB
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {images && images.images.length > 0 && (
+                  <div className="attachment-downloads">
+                    {images.images.map((image, index) => (
+                      <button
+                        className="text-button"
+                        key={index}
+                        disabled={mediaBusy}
+                        onClick={() =>
+                          void media(async () =>
+                            (await outlookApi.downloadImage(selected.id, index))
+                              ? "Image saved."
+                              : "Download canceled.",
+                          )
+                        }
+                      >
+                        <Download size={12} />
+                        <img
+                          src={image.dataUrl}
+                          alt=""
+                          width={22}
+                          height={22}
+                        />
+                        Image {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <SafeMessage
+                  key={body.id}
+                  html={
+                    body.body.contentType.toLowerCase() === "html"
+                      ? body.body.content
+                      : undefined
+                  }
+                  text={
+                    body.body.contentType.toLowerCase() === "text"
+                      ? body.body.content
+                      : htmlText(body.body.content)
+                  }
+                  dark={dark}
+                  images={approved}
+                />
+              </>
             )}
           </section>
         </>
@@ -182,16 +339,29 @@ export function OutlookInbox({
         <>
           <div className="page-heading">
             <div>
-              <h1>Outlook inbox</h1>
+              <h1>Inbox</h1>
               <p>{account.email}</p>
             </div>
-            <button className="text-button" onClick={sampleInbox}>
-              Sample inbox
-            </button>
+            <span className="account-label">
+              <span className="account-dot outlook-dot" />
+              {account.email}
+            </span>
           </div>
           <section className="mail-panel">
             <div className="list-toolbar">
-              <span className="subtle">Recent inbox · read-only</span>
+              <div className="segmented" aria-label="Relevance view">
+                {(["important", "other"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    className={view === tab ? "selected" : ""}
+                    aria-pressed={view === tab}
+                    disabled={busy}
+                    onClick={() => setView(tab)}
+                  >
+                    {tab === "important" ? "Important" : "Other"}
+                  </button>
+                ))}
+              </div>
               <span className="grow" />
               <button
                 className="text-button"
@@ -199,7 +369,7 @@ export function OutlookInbox({
                 onClick={() => void load()}
               >
                 <RefreshCw size={13} />
-                {busy ? "Refreshing…" : "Refresh"}
+                {busy ? "Loading…" : "Refresh"}
               </button>
             </div>
             {error && (
@@ -216,8 +386,11 @@ export function OutlookInbox({
               {inbox && visible.length === 0 && (
                 <div className="empty-state">
                   {query
-                    ? "No matches in these recent messages."
-                    : "Your inbox is empty."}
+                    ? "No matches in the loaded messages."
+                    : `No ${view === "important" ? "Important" : "Other"} messages in this loaded range.`}
+                  {inbox.hasMore && (
+                    <span>Load older messages to look further back.</span>
+                  )}
                 </div>
               )}
               {visible.map((message) => (
@@ -238,6 +411,9 @@ export function OutlookInbox({
                     <span className="subject">
                       {message.subject || "(No subject)"}
                     </span>
+                    {!message.inferenceClassification && (
+                      <span className="needs-review">Needs review</span>
+                    )}
                     {message.hasAttachments && (
                       <Paperclip size={12} aria-label="Has attachments" />
                     )}
@@ -255,23 +431,29 @@ export function OutlookInbox({
             <div className="list-footer">
               <span>
                 {inbox
-                  ? `${inbox.messages.length} recent messages${inbox.hasMore ? " · more available in Outlook" : ""}`
+                  ? `${inbox.messages.length} messages loaded in ${view === "important" ? "Important" : "Other"}`
                   : ""}
               </span>
-              <span>Messages are cleared when you quit</span>
+              {inbox?.hasMore && (
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => void load(true)}
+                >
+                  Load older messages
+                </button>
+              )}
             </div>
           </section>
-          <p className="settings-note">
-            Opening a message leaves its read status unchanged. Search covers
-            the sender and subject of the messages loaded here.
+          <p className="inbox-note">
+            Important follows Outlook’s Focused Inbox. Search covers loaded
+            sender and subject lines.
           </p>
         </>
       )}
     </div>
   );
 }
-
-// Parse in an inert document; never insert sender HTML into the app DOM.
 export function htmlText(html: string) {
   const template = document.createElement("template");
   template.innerHTML = sanitizeMailHtml(html);

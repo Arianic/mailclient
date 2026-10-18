@@ -1,0 +1,5 @@
+{
+  "identifier": "outlook-compose-windows",
+  "windows": ["outlook-compose-*"],
+  "permissions": ["allow-outlook-compose", "core:window:allow-close", "core:window:allow-destroy", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-start-dragging", "core:event:allow-listen", "core:event:allow-unlisten"]
+}

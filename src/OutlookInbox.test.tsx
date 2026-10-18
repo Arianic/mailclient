@@ -42,7 +42,7 @@ async function render() {
         account={account}
         dark={false}
         query=""
-        sampleInbox={() => {}}
+        compose={() => {}}
       />,
     );
   });
@@ -65,7 +65,7 @@ describe("personal Outlook reader", () => {
     });
     await render();
     expect(outlookApi.message).not.toHaveBeenCalled();
-    expect(host.textContent).toContain("more available in Outlook");
+    expect(host.textContent).toContain("Load older messages");
     await click(host.querySelector<HTMLButtonElement>(".row-main")!);
     expect(outlookApi.message).toHaveBeenCalledWith(summary.id);
     const frame = host.querySelector("iframe")!;
@@ -73,7 +73,7 @@ describe("personal Outlook reader", () => {
     expect(frame.srcdoc).not.toContain("tracker.example");
     expect(frame.srcdoc).not.toContain("danger()");
     expect(localStorage.getItem("mail-messages-v1")).toBeNull();
-    expect(host.textContent).toContain("Read-only");
+    expect(host.textContent).toContain("Load images");
   });
   it("ignores a late body response after returning to the inbox", async () => {
     let finish!: (message: OutlookMessage) => void;
@@ -95,7 +95,7 @@ describe("personal Outlook reader", () => {
     );
     expect(host.querySelector("iframe")).toBeNull();
     expect(host.textContent).not.toContain("late private body");
-    expect(host.textContent).toContain("Outlook inbox");
+    expect(host.textContent).toContain("Inbox");
   });
   it("shows fetch failures and offers a retry without clearing existing metadata", async () => {
     await render();
@@ -108,6 +108,35 @@ describe("personal Outlook reader", () => {
       "Connection unavailable",
     );
     expect(host.textContent).toContain(summary.subject);
+  });
+  it("loads older pages without duplicates and preserves the selected category", async () => {
+    await render();
+    vi.mocked(outlookApi.inbox).mockResolvedValueOnce({
+      messages: [
+        summary,
+        { ...summary, id: "older", subject: "Older message" },
+      ],
+      hasMore: false,
+    });
+    const older = Array.from(host.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Load older messages"),
+    )!;
+    await click(older);
+    expect(outlookApi.inbox).toHaveBeenLastCalledWith("important", true);
+    expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
+    expect(host.textContent).toContain("Older message");
+    vi.mocked(outlookApi.inbox).mockResolvedValueOnce({
+      messages: [],
+      hasMore: true,
+    });
+    await click(
+      Array.from(host.querySelectorAll("button")).find(
+        (button) => button.textContent === "Other",
+      )!,
+    );
+    expect(outlookApi.inbox).toHaveBeenLastCalledWith("other", false);
+    expect(host.textContent).not.toContain("Older message");
+    expect(host.textContent).toContain("Load older messages");
   });
   it("extracts readable text without retaining active or tracking markup", () => {
     const text = htmlText(

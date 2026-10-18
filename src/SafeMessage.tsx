@@ -6,16 +6,18 @@ export function SafeMessage({
   html,
   text,
   dark,
+  images = {},
 }: {
   html?: string;
   text: string;
   dark: boolean;
+  images?: Readonly<Record<string, string>>;
 }) {
   const [original, setOriginal] = useState(false);
   const [plain, setPlain] = useState(false);
   const doc = useMemo(
-    () => (html ? mailDocument(html, dark, original) : ""),
-    [html, dark, original],
+    () => (html ? mailDocument(html, dark, original, images) : ""),
+    [html, dark, original, images],
   );
   if (!html) return <div className="message-text">{text}</div>;
   return (
@@ -50,7 +52,9 @@ export function SafeMessage({
       )}
       <span className="message-safety-note">
         <FileText size={11} />
-        External images and links are inactive.
+        {Object.keys(images).length
+          ? "Images loaded for this message. Links remain inactive."
+          : "External images and links are inactive."}
       </span>
     </div>
   );

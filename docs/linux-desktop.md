@@ -19,6 +19,8 @@ The setup command belongs on the laptop; it has not been run there. Review packa
 
 If already cloned, enter that existing folder instead of cloning again. Run all `npm` commands in the folder containing `package.json`. For personal Outlook sign-in, follow [the Outlook setup guide](outlook-setup.md); GNOME Keyring must be available in your desktop session.
 
+Connected-client update: native Mail opens your Outlook inbox directly and hides sample mailboxes. Use Settings → Personal Outlook → Enable sending to approve the additional Mail.Send permission once, then use Compose/Reply and local Drafts. Load older messages continues past the first page; Important/Other follows Outlook classification. Load images is per message and opens no remote content directly in the email frame. Images/attachments save through native dialogs. See the Outlook guide for limits and laptop checks. Old sample drafts remain separate and are not migrated into real mail.
+
 To compile the local desktop executable:
 
 ```sh
@@ -58,6 +60,8 @@ GNOME Keyring and an initial personal Outlook reader are implemented; actual sig
 The native shell uses `workspace.sqlite` in its OS app-data directory. On Linux the application directory is restricted to its owner. SQLite uses a versioned schema, WAL and full synchronization. Preferences, sample mail state and sample calendar data are persisted; each draft is a separate record so simultaneous compose windows do not overwrite unrelated drafts. Windows receive revisioned updates, ignore stale events and show persistent save failures. Closing a compose window flushes its draft first.
 
 The browser preview still uses localStorage and does not share its sample data with the native app. No credentials are stored in SQLite. The database is not encrypted at rest. Outlook refresh credentials are kept separately in Secret Service/GNOME Keyring; its access token and fetched messages stay in memory. An offline real-mail cache/schema is still pending.
+
+Real drafts and send states now use a separate `outlook-drafts.sqlite` in the owner-only app data directory. Drafts are not encrypted at rest. Credential storage remains separate. A send is durably marked before its sole network attempt; interrupted submissions recover as uncertain instead of being replayed. Compose windows must finish saving before closing and cannot close during submission. Disconnect/quit require closing those windows first.
 
 The Rust privacy module prepares future cloud payloads: automatic personal relevance input excludes message bodies; manual summary/reply requires an explicit body request; work accounts and personal messages marked as containing derived work material are rejected. No cloud dispatcher exists yet. Future adapters must resolve account identity/provenance from trusted backend records and use this boundary; these tests do not claim that real provider or AI integrations have already been completed.
 
