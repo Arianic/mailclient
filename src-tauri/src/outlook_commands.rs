@@ -253,9 +253,10 @@ pub async fn outlook_conversation(
         .to_lowercase();
     let index = app.state::<MailIndex>();
     let messages = index.conversation(&account, &id)?;
+    let status = index.status(&account)?;
     Ok(Conversation {
         messages,
-        complete: index.status(&account)?.pending == 0,
+        complete: status.pending == 0 && status.coverage_gaps == 0 && status.error.is_none(),
     })
 }
 #[tauri::command]

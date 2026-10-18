@@ -76,6 +76,8 @@ export type IndexStatus = {
   folders: number;
   pending: number;
   missingFiles: number;
+  reportedItems?: number | null;
+  coverageGaps?: number;
   lastSync: number;
   error: string | null;
 };
@@ -104,7 +106,7 @@ function read<T>(key: string, action: () => Promise<T>): Promise<T> {
 // Tokens and network URLs never cross this bridge. Real mail is deliberately
 // kept out of the prototype's localStorage/SQLite key-value state and exports.
 export const outlookApi = {
-  indexControl: (action: "pause" | "resume" | "clear") =>
+  indexControl: (action: "pause" | "resume" | "clear" | "rebuild") =>
     invoke<IndexStatus>("outlook_index_control", { action }),
   search: (query: string, offset = 0, sort = "relevance") =>
     read(`search:${query}:${offset}:${sort}`, () =>

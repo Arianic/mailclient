@@ -190,9 +190,11 @@ export function SearchControls({
             ? "Indexing paused"
             : !status.folders
               ? "Preparing mailbox index"
-              : status.pending
-                ? `Indexing older mail · ${status.messages.toLocaleString()} messages searchable · ${status.pending} folders pending`
-                : `${status.messages.toLocaleString()} messages searchable across ${status.folders} folders`}
+              : status.coverageGaps && !status.pending
+                ? `Coverage incomplete · ${status.messages.toLocaleString()} messages searchable · Outlook reports additional folder items`
+                : status.pending
+                  ? `Indexing older mail · ${status.messages.toLocaleString()} messages searchable · ${status.pending} folders pending`
+                  : `${status.messages.toLocaleString()} messages searchable across ${status.folders} folders`}
           {status.missingFiles
             ? ` · ${status.missingFiles} attachment-name lists pending`
             : ""}

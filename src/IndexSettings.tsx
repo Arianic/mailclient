@@ -13,7 +13,9 @@ export function IndexSettings() {
         .then((next) => {
           if (live) setStatus(next);
         })
-        .catch(() => {});
+        .catch((error) => {
+          if (live) setError(String(error));
+        });
     check();
     const timer = setInterval(check, 5000);
     return () => {
@@ -21,7 +23,7 @@ export function IndexSettings() {
       clearInterval(timer);
     };
   }, []);
-  const action = async (action: "pause" | "resume" | "clear") => {
+  const action = async (action: "pause" | "resume" | "clear" | "rebuild") => {
     setBusy(true);
     setError("");
     try {
@@ -48,9 +50,20 @@ export function IndexSettings() {
           {status.messages.toLocaleString()} messages ·{" "}
           {status.paused
             ? "Indexing paused"
-            : status.pending
-              ? `${status.pending} folders indexing`
-              : "Index up to date"}
+            : status.error
+              ? "Indexing interrupted — retry available"
+              : !status.folders
+                ? "Preparing mailbox scan"
+                : status.pending
+                  ? `${status.pending} folders indexing`
+                  : status.coverageGaps
+                    ? "Coverage incomplete — Outlook reports more items in some folders"
+                    : status.missingFiles
+                      ? "Mail scan complete; indexing attachment names"
+                      : "Mailbox scan complete"}
+          {status.reportedItems != null
+            ? ` · Outlook reports ${status.reportedItems.toLocaleString()} folder items`
+            : ""}
           {status.missingFiles
             ? ` · ${status.missingFiles} filename lists pending`
             : ""}
@@ -63,6 +76,13 @@ export function IndexSettings() {
           onClick={() => void action(status?.paused ? "resume" : "pause")}
         >
           {status?.paused ? "Resume indexing" : "Pause indexing"}
+        </button>
+        <button
+          className="soft-button"
+          disabled={busy}
+          onClick={() => void action("rebuild")}
+        >
+          Rescan entire mailbox
         </button>
         <button
           className="text-button"
@@ -91,7 +111,18 @@ export function IndexSettings() {
         </div>
       )}
       {error && <p role="alert">{error}</p>}
-      {status?.error && <p className="settings-note">{status.error}</p>}
+      {status?.error && (
+        <p className="settings-note" role="alert">
+          {status.error}
+        </p>
+      )}
+      {!!status?.coverageGaps && (
+        <p className="settings-note">
+          Some folders contain fewer cached messages than Outlook’s item count.
+          Rescan entire mailbox retries all pages and keeps saved mail
+          available. Folder item counts can include non-email items.
+        </p>
+      )}
     </div>
   );
 }

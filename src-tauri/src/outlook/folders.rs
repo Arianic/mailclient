@@ -6,6 +6,8 @@ pub struct Folder {
     pub id: String,
     pub display_name: String,
     pub unread_item_count: u32,
+    #[serde(default)]
+    pub total_item_count: Option<u64>,
     pub child_folder_count: u32,
     #[serde(default)]
     pub is_inbox: bool,
@@ -36,7 +38,7 @@ impl OutlookService {
         let mut session = self.session.lock().await;
         let token = self.access(&mut session).await?;
         if session.inbox_id.is_none() {
-            let inbox: Folder = self.get(&format!("{GRAPH}/me/mailFolders/inbox?$select=id,displayName,unreadItemCount,childFolderCount"), &token).await?;
+            let inbox: Folder = self.get(&format!("{GRAPH}/me/mailFolders/inbox?$select=id,displayName,unreadItemCount,totalItemCount,childFolderCount"), &token).await?;
             session.inbox_id = Some(inbox.id);
         }
         let mut url = reqwest::Url::parse(&format!("{GRAPH}/me/mailFolders")).unwrap();
@@ -51,7 +53,10 @@ impl OutlookService {
         }
         url.query_pairs_mut()
             .append_pair("$top", "100")
-            .append_pair("$select", "id,displayName,unreadItemCount,childFolderCount");
+            .append_pair(
+                "$select",
+                "id,displayName,unreadItemCount,totalItemCount,childFolderCount",
+            );
         let mut next = Some(url.to_string());
         let mut folders = Vec::new();
         while let Some(url) = next {

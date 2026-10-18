@@ -7,6 +7,10 @@ import { outlookApi, type OutlookSummary } from "./outlook";
 import { initialMail } from "./data";
 import icon from "../src-tauri/icons/icon.png";
 import { OutlookComposer } from "./OutlookComposer";
+import { IndexSettings } from "./IndexSettings";
+const indexPreview =
+  new URLSearchParams(location.search).get("outlookPreview") === "index";
+let rescanning = false;
 import { OutlookFolders, defaultOutlookFolder } from "./OutlookFolders";
 import type { OutlookDraft, OutlookFolder } from "./outlook";
 
@@ -90,14 +94,19 @@ const messages: OutlookSummary[] = Array.from({ length: 140 }, (_, index) => {
   };
 });
 outlookApi.indexStatus = async () => ({
-  messages: 140,
+  messages: indexPreview ? 300 : 140,
+  reportedItems: indexPreview ? 5000 : 140,
+  coverageGaps: indexPreview && !rescanning ? 1 : 0,
   folders: 7,
-  pending: 0,
+  pending: rescanning ? 7 : 0,
   missingFiles: 0,
   lastSync: 1,
   error: null,
 });
-outlookApi.indexControl = async () => outlookApi.indexStatus();
+outlookApi.indexControl = async (action) => {
+  if (action === "rebuild") rescanning = true;
+  return outlookApi.indexStatus();
+};
 outlookApi.sync = async () => false;
 outlookApi.cachedFolders = async () => outlookApi.folders();
 outlookApi.contacts = async (query) =>
@@ -297,16 +306,23 @@ export function ConnectedPreview() {
             </a>
           </aside>
           <main className="main-content">
-            <OutlookInbox
-              key={folder.id}
-              folder={folder}
-              canManage={true}
-              account={{ email: "you@outlook.example", displayName: "Example" }}
-              dark={dark}
-              query={query}
-              onQueryChange={setQuery}
-              compose={() => {}}
-            />
+            {indexPreview ? (
+              <IndexSettings />
+            ) : (
+              <OutlookInbox
+                key={folder.id}
+                folder={folder}
+                canManage={true}
+                account={{
+                  email: "you@outlook.example",
+                  displayName: "Example",
+                }}
+                dark={dark}
+                query={query}
+                onQueryChange={setQuery}
+                compose={() => {}}
+              />
+            )}
           </main>
         </div>
         <footer className="window-footer">

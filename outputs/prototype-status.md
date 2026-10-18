@@ -1,5 +1,11 @@
 # Mail development checkpoint — 18 October 2026
 
+## Mailbox indexing correction — 18 October 2026
+
+The user reported approximately 300 messages indexed while Settings claimed completion for a mailbox with thousands. The initial history scan now uses ordinary folder-message pagination independently of delta change tracking, requests page size through Prefer, and follows empty intermediate pages. Index schema version 2 preserves cached mail and pause preferences while scheduling a fresh scan. Pending change pages and per-folder count gaps no longer present successful completion. Outlook item counts are shown separately because they may include non-email items. Rescan entire mailbox provides non-destructive recovery without reconnecting or clearing drafts.
+
+Verification: 48 frontend and 44 Rust tests pass, including 2,025 messages, a restart at 300, an empty intermediate page, partial initial delta data, pending incremental pages, old-cache migration and account-scoped rescan. Production frontend and Linux builds pass; clean WSLg startup reaches application and workspace markers. Light/dark synthetic browser checks verify incomplete coverage and rescan feedback; those fixtures are absent from production output. Actual full coverage of the user's mailbox must be confirmed after updating on CachyOS.
+
 ## Current search and everyday-mail checkpoint — 18 October 2026
 
 Implemented local whole-mailbox Outlook search and incremental offline caching, coverage and pause/clear controls; quieter reading and indexed expanded conversations; individual/bulk mail actions with guarded session Undo; preserved navigation and previous/next; Reply all/Forward; recipient chips with local suggestions; discard; native file drop; 20 MB/20 file sending with upload progress and durable preparation/submission states. Search includes subject, sender/recipients, body and attachment names, not attached-file contents. No AI service/Plus usage is added. See [search](../docs/search.md), [Outlook setup](../docs/outlook-setup.md) and [UX status](ux-review.md).

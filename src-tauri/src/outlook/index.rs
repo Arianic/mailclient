@@ -17,6 +17,8 @@ pub struct IndexStatus {
     pub folders: usize,
     pub pending: usize,
     pub missing_files: usize,
+    pub reported_items: Option<usize>,
+    pub coverage_gaps: usize,
     pub last_sync: i64,
     pub error: Option<String>,
 }
@@ -92,7 +94,7 @@ impl MailIndex {
         folder: &str,
         run: &str,
         started: i64,
-        delta: &str,
+        delta: Option<&str>,
     ) -> Result<(), String> {
         let mut c = self.0.lock().map_err(|_| "Mail index busy")?;
         let tx = c
@@ -110,8 +112,53 @@ impl MailIndex {
             params![account, folder],
         )
         .map_err(|_| "Could not finish folder reconciliation")?;
-        tx.execute("UPDATE folders SET cursor=NULL,delta=?1,done=1,synced=unixepoch() WHERE account=?2 AND id=?3",params![delta,account,folder]).map_err(|_|"Could not save reconciled checkpoint")?;
+        tx.execute("UPDATE folders SET cursor=NULL,delta=?1,scan=0,done=?2,synced=CASE WHEN ?2=1 THEN unixepoch() ELSE 0 END WHERE account=?3 AND id=?4",params![delta,delta.is_some(),account,folder]).map_err(|_|"Could not save reconciled checkpoint")?;
         tx.commit().map_err(|_| "Could not finish reconciliation")?;
+        Ok(())
+    }
+    fn apply_sync_page(
+        &self,
+        account: &str,
+        folder: &str,
+        scanning: bool,
+        mut page: Delta,
+    ) -> Result<(), String> {
+        let next = page
+            .next
+            .map(|u| {
+                if scanning {
+                    valid_next_page(&u)
+                } else {
+                    delta_url(&u)
+                }
+            })
+            .transpose()?;
+        let delta = page.delta.map(|u| delta_url(&u)).transpose()?;
+        if !scanning && next.is_none() && delta.is_none() {
+            return Err("Outlook omitted its sync checkpoint. Indexing will retry.".into());
+        }
+        let round = if scanning {
+            Some(self.start_round(account, folder)?)
+        } else {
+            None
+        };
+        if let Some((run, _)) = &round {
+            for change in &mut page.value {
+                if change.get("@removed").is_none() {
+                    change["_indexRun"] = run.clone().into();
+                }
+            }
+        }
+        self.upsert(account, folder, &page.value)?;
+        if next.is_none() {
+            if let Some((run, started)) = round {
+                // A full ordinary listing establishes history. Delta then establishes change tracking
+                // without purging older messages if its initial response contains only recent changes.
+                return self.finish_round(account, folder, &run, started, None);
+            }
+        }
+        let c = self.0.lock().map_err(|_| "Mail index busy")?;
+        c.execute("UPDATE folders SET cursor=?1,delta=COALESCE(?2,delta),done=CASE WHEN ?3=1 THEN 1 ELSE done END,synced=CASE WHEN ?3=1 THEN unixepoch() ELSE synced END WHERE account=?4 AND id=?5",params![next,delta,!scanning && next.is_none(),account,folder]).map_err(|_|"Could not save sync checkpoint")?;
         Ok(())
     }
     pub fn request_sync(&self, account: &str) -> Result<(), String> {
@@ -137,14 +184,27 @@ impl MailIndex {
             .map_err(|_| "Could not check folder cache".into())
     }
     pub fn control(&self, account: &str, action: &str) -> Result<(), String> {
-        if !matches!(action, "pause" | "resume" | "clear") {
+        if !matches!(action, "pause" | "resume" | "clear" | "rebuild") {
             return Err("Unknown search index action".into());
         }
         let mut c = self.0.lock().map_err(|_| "Mail index busy")?;
         let tx = c
             .transaction()
             .map_err(|_| "Could not update indexing settings")?;
-        tx.execute("INSERT INTO index_settings(account,paused) VALUES(?1,?2) ON CONFLICT(account) DO UPDATE SET paused=excluded.paused",params![account,action!="resume"]).map_err(|_|"Could not update indexing settings")?;
+        tx.execute("INSERT INTO index_settings(account,paused) VALUES(?1,?2) ON CONFLICT(account) DO UPDATE SET paused=excluded.paused",params![account,matches!(action,"pause"|"clear")]).map_err(|_|"Could not update indexing settings")?;
+        if action == "rebuild" {
+            tx.execute(
+                "UPDATE folders SET scan=1,done=0,cursor=NULL,delta=NULL,synced=0 WHERE account=?1",
+                [account],
+            )
+            .map_err(|_| "Could not restart mailbox scan")?;
+            tx.execute("UPDATE discovery SET done=0 WHERE account=?1", [account])
+                .map_err(|_| "Could not refresh folders")?;
+            for table in ["folder_rounds", "folder_checks", "sync_errors"] {
+                tx.execute(&format!("DELETE FROM {table} WHERE account=?1"), [account])
+                    .map_err(|_| "Could not restart indexing")?;
+            }
+        }
         if action == "clear" {
             tx.execute(
                 "DELETE FROM mail_fts WHERE rowid IN (SELECT rowid FROM messages WHERE account=?1)",
@@ -177,7 +237,7 @@ impl MailIndex {
         let version: i64 = c
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(|_| "Could not read mail index version")?;
-        if version > 1 {
+        if version > 2 {
             return Err("The mail index needs a newer app version".into());
         }
         c.execute_batch("PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;BEGIN;
@@ -191,7 +251,20 @@ impl MailIndex {
  CREATE TABLE IF NOT EXISTS index_settings(account TEXT PRIMARY KEY,paused INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS folder_checks(account TEXT NOT NULL,parent TEXT NOT NULL,checked INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(account,parent));
  CREATE TABLE IF NOT EXISTS folder_rounds(account TEXT NOT NULL,id TEXT NOT NULL,run TEXT NOT NULL,started INTEGER NOT NULL,PRIMARY KEY(account,id));
- CREATE TABLE IF NOT EXISTS sync_errors(account TEXT PRIMARY KEY,error TEXT);PRAGMA user_version=1;COMMIT;").map_err(|_|"Could not initialize local mail search")?;
+ CREATE TABLE IF NOT EXISTS sync_errors(account TEXT PRIMARY KEY,error TEXT);COMMIT;").map_err(|_|"Could not initialize local mail search")?;
+        if version < 2 {
+            // Repair previous completion claims without deleting cached mail or user pause settings.
+            c.execute_batch(
+                "BEGIN; ALTER TABLE folders ADD COLUMN scan INTEGER NOT NULL DEFAULT 1;
+                UPDATE folders SET scan=1,done=0,cursor=NULL,delta=NULL,synced=0;
+                DELETE FROM folder_rounds; UPDATE discovery SET done=0; DELETE FROM folder_checks;
+                PRAGMA user_version=2; COMMIT;",
+            )
+            .map_err(|_| "Could not upgrade mailbox indexing")?;
+        } else {
+            c.pragma_update(None, "user_version", 2)
+                .map_err(|_| "Could not retain mailbox index version")?;
+        }
         Ok(Self(
             DbMutex::new(c),
             Mutex::new(()),
@@ -204,8 +277,10 @@ impl MailIndex {
  paused:c.query_row("SELECT paused FROM index_settings WHERE account=?1",[account],|r|r.get(0)).optional().map_err(|_|"Could not read index setting")?.unwrap_or(false),
   messages:c.query_row("SELECT count(*) FROM messages WHERE account=?1",[account],|r|r.get::<_,i64>(0)).unwrap_or(0) as usize,
   folders:c.query_row("SELECT count(*) FROM folders WHERE account=?1",[account],|r|r.get::<_,i64>(0)).unwrap_or(0) as usize,
-  pending:c.query_row("SELECT (SELECT count(*) FROM folders WHERE account=?1 AND done=0)+(SELECT count(*) FROM discovery WHERE account=?1 AND done=0)",[account],|r|r.get::<_,i64>(0)).unwrap_or(0) as usize,
+  pending:c.query_row("SELECT (SELECT count(*) FROM folders WHERE account=?1 AND (done=0 OR cursor IS NOT NULL))+(SELECT count(*) FROM discovery WHERE account=?1 AND done=0)",[account],|r|r.get::<_,i64>(0)).unwrap_or(0) as usize,
   missing_files:c.query_row("SELECT count(*) FROM messages WHERE account=?1 AND attached=1 AND COALESCE(json_extract(json,'$._attachmentsIndexed'),0)=0",[account],|r|r.get::<_,i64>(0)).unwrap_or(0) as usize,
+  reported_items:c.query_row("SELECT sum(json_extract(json,'$.totalItemCount')) FROM folders WHERE account=?1",[account],|r|r.get::<_,Option<i64>>(0)).unwrap_or(None).map(|n|n.max(0) as usize),
+  coverage_gaps:c.query_row("SELECT count(*) FROM folders f WHERE f.account=?1 AND f.scan=0 AND f.done=1 AND COALESCE(json_extract(f.json,'$.totalItemCount'),0)>(SELECT count(*) FROM messages m WHERE m.account=f.account AND m.folder=f.id)",[account],|r|r.get::<_,i64>(0)).unwrap_or(0) as usize,
   last_sync:c.query_row("SELECT COALESCE(max(synced),0) FROM folders WHERE account=?1",[account],|r|r.get(0)).unwrap_or(0),
   error:c.query_row("SELECT error FROM sync_errors WHERE account=?1",[account],|r|r.get(0)).optional().map_err(|_|"Could not read search status")?.flatten(),
  })
@@ -623,35 +698,35 @@ impl OutlookService {
         }
         let pending: Option<(String, Option<String>, bool)> = {
             let c = index.0.lock().map_err(|_| "Mail index busy")?;
-            c.query_row("SELECT id,COALESCE(cursor,delta),done FROM folders WHERE account=?1 AND (done=0 OR synced<unixepoch()-60) ORDER BY done,synced LIMIT 1",[&account],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|_|"Could not read indexing position")?
+            c.query_row("SELECT id,COALESCE(cursor,delta),scan FROM folders WHERE account=?1 AND (done=0 OR cursor IS NOT NULL OR synced<unixepoch()-60) ORDER BY done,synced LIMIT 1",[&account],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|_|"Could not read indexing position")?
         };
-        if let Some((folder, cursor, initialized)) = pending {
-            let round = if !initialized {
-                Some(index.start_round(&account, &folder)?)
-            } else {
-                None
-            };
+        if let Some((folder, cursor, scanning)) = pending {
             let (token, url) = {
                 let mut s = self.session.lock().await;
                 let token = self.access(&mut s).await?;
                 let url = if let Some(cursor) = cursor {
-                    delta_url(&cursor)?
+                    if scanning {
+                        valid_next_page(&cursor)?
+                    } else {
+                        delta_url(&cursor)?
+                    }
                 } else {
                     let mut u = reqwest::Url::parse(&format!("{GRAPH}/me/mailFolders/")).unwrap();
                     u.path_segments_mut()
                         .unwrap()
                         .pop_if_empty()
                         .push(&folder)
-                        .push("messages")
-                        .push("delta");
+                        .push("messages");
+                    if !scanning {
+                        u.path_segments_mut().unwrap().push("delta");
+                    }
                     u.query_pairs_mut()
-                        .append_pair("$top", "25")
                         .append_pair("$select", &format!("{HEADER_FIELDS},body"));
                     u.to_string()
                 };
                 (token, url)
             };
-            let result: Result<Delta, String> = self.get(&url, &token).await;
+            let result: Result<Delta, String> = self.get_paged(&url, &token, true).await;
             let page = match result {
                 Ok(p) => p,
                 Err(e) => {
@@ -660,7 +735,7 @@ impl OutlookService {
                     }
                     if e.contains("(410)") {
                         let c = index.0.lock().map_err(|_| "Mail index busy")?;
-                        c.execute("UPDATE folders SET cursor=NULL,delta=NULL,done=0,synced=0 WHERE account=?1 AND id=?2",params![account,folder]).map_err(|_|"Could not restart folder sync")?;
+                        c.execute("UPDATE folders SET scan=1,cursor=NULL,delta=NULL,done=0,synced=0 WHERE account=?1 AND id=?2",params![account,folder]).map_err(|_|"Could not restart folder sync")?;
                         c.execute(
                             "DELETE FROM folder_rounds WHERE account=?1 AND id=?2",
                             params![account, folder],
@@ -671,36 +746,12 @@ impl OutlookService {
                     return Err(e);
                 }
             };
-            let next = page.next.map(|u| delta_url(&u)).transpose()?;
-            let delta = page.delta.map(|u| delta_url(&u)).transpose()?;
-            if next.is_none() && delta.is_none() {
-                return Err("Outlook omitted its sync checkpoint. Indexing will retry.".into());
+            if page.next.as_deref() == Some(url.as_str()) {
+                return Err(
+                    "Outlook repeated a mailbox page. Your existing cache was preserved.".into(),
+                );
             }
-            let mut changes = page.value;
-            if let Some((run, _)) = &round {
-                for change in &mut changes {
-                    if change.get("@removed").is_none() {
-                        change["_indexRun"] = run.clone().into();
-                    }
-                }
-            }
-            index.upsert(&account, &folder, &changes)?;
-            if next.is_none() {
-                if let Some((run, started)) = &round {
-                    index.finish_round(
-                        &account,
-                        &folder,
-                        run,
-                        *started,
-                        delta
-                            .as_deref()
-                            .ok_or("Missing completed sync checkpoint")?,
-                    )?;
-                    return Ok(true);
-                }
-            }
-            let c = index.0.lock().map_err(|_| "Mail index busy")?;
-            c.execute("UPDATE folders SET cursor=?1,delta=COALESCE(?2,delta),done=CASE WHEN delta IS NOT NULL OR ?3=1 THEN 1 ELSE 0 END,synced=CASE WHEN ?3=1 THEN unixepoch() ELSE synced END WHERE account=?4 AND id=?5",params![next,delta,next.is_none(),account,folder]).map_err(|_|"Could not save sync checkpoint")?;
+            index.apply_sync_page(&account, &folder, scanning, page)?;
             return Ok(true);
         }
         let pending_file: Option<(String, String)> = {
@@ -724,6 +775,159 @@ impl OutlookService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn test_folder(index: &MailIndex, count: usize) {
+        let json = serde_json::json!({"id":"inbox","displayName":"Inbox","isInbox":true,"unreadItemCount":0,"childFolderCount":0,"totalItemCount":count});
+        index.0.lock().unwrap().execute("INSERT INTO folders(account,id,name,parent,json) VALUES('a','inbox','Inbox','',?1)",[json.to_string()]).unwrap();
+    }
+    #[test]
+    fn full_scan_pages_through_thousands_resumes_and_does_not_stop_at_300() {
+        let mut index = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
+        test_folder(&index, 2025);
+        for page in 0..81 {
+            let mails = (page * 25..(page + 1) * 25)
+                .map(|n| mail(&n.to_string(), "Invoice", "Searchable history"))
+                .collect();
+            let next = if page < 80 {
+                Some(format!(
+                    "{GRAPH}/me/mailFolders/inbox/messages?$skiptoken=opaque-{}",
+                    page + 1
+                ))
+            } else {
+                None
+            };
+            index
+                .apply_sync_page(
+                    "a",
+                    "inbox",
+                    true,
+                    Delta {
+                        value: mails,
+                        next,
+                        delta: None,
+                    },
+                )
+                .unwrap();
+            if page == 11 {
+                assert_eq!(index.status("a").unwrap().messages, 300);
+                assert_eq!(index.status("a").unwrap().pending, 1);
+                assert!(!index.folder_ready("a", "inbox").unwrap());
+                let connection = index.0.into_inner().unwrap();
+                index = MailIndex::init(connection).unwrap();
+                let cursor: String = index
+                    .0
+                    .lock()
+                    .unwrap()
+                    .query_row(
+                        "SELECT cursor FROM folders WHERE account='a' AND id='inbox'",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                assert!(cursor.contains("opaque-12"));
+                // Empty intermediate pages still have to advance to their next link.
+                index
+                    .apply_sync_page(
+                        "a",
+                        "inbox",
+                        true,
+                        Delta {
+                            value: vec![],
+                            next: Some(format!(
+                                "{GRAPH}/me/mailFolders/inbox/messages?$skiptoken=empty-page"
+                            )),
+                            delta: None,
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(index.status("a").unwrap().pending, 1);
+            }
+        }
+        assert_eq!(
+            index
+                .search("a", "history", 2000, "newest")
+                .unwrap()
+                .messages
+                .len(),
+            25
+        );
+        assert_eq!(index.status("a").unwrap().pending, 1); // change-tracking baseline still pending
+        index
+            .apply_sync_page(
+                "a",
+                "inbox",
+                false,
+                Delta {
+                    value: vec![mail("0", "Invoice", "Searchable history")],
+                    next: None,
+                    delta: Some(format!(
+                        "{GRAPH}/me/mailFolders/inbox/messages/delta?$deltatoken=baseline"
+                    )),
+                },
+            )
+            .unwrap();
+        let status = index.status("a").unwrap();
+        assert_eq!(status.messages, 2025);
+        assert_eq!(status.pending, 0);
+        assert_eq!(status.coverage_gaps, 0);
+        assert_eq!(status.reported_items, Some(2025));
+        assert!(index.folder_ready("a", "inbox").unwrap());
+        index
+            .apply_sync_page(
+                "a",
+                "inbox",
+                false,
+                Delta {
+                    value: vec![],
+                    next: Some(format!(
+                        "{GRAPH}/me/mailFolders/inbox/messages/delta?$skiptoken=updates"
+                    )),
+                    delta: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(index.status("a").unwrap().pending, 1);
+    }
+    #[test]
+    fn old_completed_cache_is_rescanned_without_losing_mail_or_pause_preference() {
+        let index = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
+        test_folder(&index, 4000);
+        index
+            .upsert("a", "inbox", &[mail("saved", "Saved mail", "private")])
+            .unwrap();
+        index.control("a", "pause").unwrap();
+        let c = index.0.into_inner().unwrap();
+        c.execute_batch("UPDATE folders SET done=1,scan=0,cursor=NULL,delta='old-checkpoint'; ALTER TABLE folders DROP COLUMN scan; PRAGMA user_version=1;").unwrap();
+        let upgraded = MailIndex::init(c).unwrap();
+        let status = upgraded.status("a").unwrap();
+        assert!(status.paused);
+        assert_eq!(status.messages, 1);
+        assert_eq!(status.pending, 1);
+        assert!(!upgraded.folder_ready("a", "inbox").unwrap());
+        assert!(upgraded.raw("a", "saved").unwrap().is_some());
+    }
+    #[test]
+    fn coverage_mismatch_stays_visible_and_rescan_preserves_other_accounts() {
+        let index = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
+        test_folder(&index, 4000);
+        index
+            .upsert("a", "inbox", &[mail("saved", "Saved mail", "private")])
+            .unwrap();
+        index
+            .upsert("b", "inbox", &[mail("other", "Other account", "private")])
+            .unwrap();
+        index
+            .0
+            .lock()
+            .unwrap()
+            .execute_batch("UPDATE folders SET scan=0,done=1,delta='checkpoint'")
+            .unwrap();
+        assert_eq!(index.status("a").unwrap().coverage_gaps, 1);
+        index.control("a", "rebuild").unwrap();
+        assert!(!index.status("a").unwrap().paused);
+        assert_eq!(index.status("a").unwrap().pending, 1);
+        assert!(index.raw("a", "saved").unwrap().is_some());
+        assert!(index.raw("b", "other").unwrap().is_some());
+    }
     #[test]
     fn cache_clear_is_account_scoped_and_pauses_indexing_including_contacts() {
         let i = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
@@ -780,7 +984,7 @@ mod tests {
         let mut moved = mail("moved", "Moved mail", "archive");
         moved["parentFolderId"] = "archive".into();
         i.upsert("a", "archive", &[moved]).unwrap();
-        i.finish_round("a", "inbox", &run, started, "checkpoint")
+        i.finish_round("a", "inbox", &run, started, Some("checkpoint"))
             .unwrap();
         assert!(i.raw("a", "old").unwrap().is_none());
         assert!(i.raw("a", "keep").unwrap().is_some());

@@ -469,14 +469,24 @@ impl OutlookService {
         Ok(access.0)
     }
     async fn get<T: DeserializeOwned>(&self, url: &str, token: &str) -> Result<T, String> {
+        self.get_paged(url, token, false).await
+    }
+    async fn get_paged<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        token: &str,
+        small_pages: bool,
+    ) -> Result<T, String> {
+        let preference = if small_pages {
+            "IdType=\"ImmutableId\", outlook.body-content-type=\"html\", odata.maxpagesize=25"
+        } else {
+            "IdType=\"ImmutableId\", outlook.body-content-type=\"html\""
+        };
         let mut response = self
             .http
             .get(url)
             .bearer_auth(token)
-            .header(
-                "Prefer",
-                "IdType=\"ImmutableId\", outlook.body-content-type=\"html\"",
-            )
+            .header("Prefer", preference)
             .send()
             .await
             .map_err(|_| "Could not reach Outlook. Check your connection and try again.")?;
