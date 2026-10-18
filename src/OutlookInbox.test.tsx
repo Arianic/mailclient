@@ -6,7 +6,7 @@ import { htmlText, OutlookInbox } from "./OutlookInbox";
 import { outlookApi, type OutlookMessage } from "./outlook";
 
 vi.mock("./outlook", () => ({
-  outlookApi: { inbox: vi.fn(), message: vi.fn() },
+  outlookApi: { inbox: vi.fn(), message: vi.fn(), markRead: vi.fn() },
 }));
 let host: HTMLDivElement;
 let root: Root;
@@ -35,7 +35,10 @@ afterEach(() => {
   host.remove();
   vi.clearAllMocks();
 });
-async function render() {
+async function render(
+  canManage = false,
+  folder?: import("./outlook").OutlookFolder,
+) {
   await act(async () => {
     root.render(
       <OutlookInbox
@@ -43,6 +46,8 @@ async function render() {
         dark={false}
         query=""
         compose={() => {}}
+        canManage={canManage}
+        folder={folder}
       />,
     );
   });
@@ -122,7 +127,11 @@ describe("personal Outlook reader", () => {
       button.textContent?.includes("Load older messages"),
     )!;
     await click(older);
-    expect(outlookApi.inbox).toHaveBeenLastCalledWith("important", true);
+    expect(outlookApi.inbox).toHaveBeenLastCalledWith(
+      "important",
+      true,
+      "inbox",
+    );
     expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
     expect(host.textContent).toContain("Older message");
     vi.mocked(outlookApi.inbox).mockResolvedValueOnce({
@@ -134,7 +143,7 @@ describe("personal Outlook reader", () => {
         (button) => button.textContent === "Other",
       )!,
     );
-    expect(outlookApi.inbox).toHaveBeenLastCalledWith("other", false);
+    expect(outlookApi.inbox).toHaveBeenLastCalledWith("other", false, "inbox");
     expect(host.textContent).not.toContain("Older message");
     expect(host.textContent).toContain("Load older messages");
   });
@@ -145,5 +154,58 @@ describe("personal Outlook reader", () => {
     expect(text).toContain("Hello & welcome\nSecond line");
     expect(text).not.toContain("danger()");
     expect(text).not.toContain("https:");
+  });
+  it("marks a successfully opened message as read on the server and in the list", async () => {
+    vi.mocked(outlookApi.message).mockResolvedValue({
+      id: summary.id,
+      body: { contentType: "text", content: "Hello" },
+    });
+    vi.mocked(outlookApi.markRead).mockResolvedValue();
+    await render(true);
+    await click(host.querySelector<HTMLButtonElement>(".row-main")!);
+    expect(outlookApi.markRead).toHaveBeenCalledExactlyOnceWith(summary.id);
+    await click(
+      host.querySelector<HTMLButtonElement>(".outlook-reader-toolbar button")!,
+    );
+    expect(host.querySelector(".mail-row.unread")).toBeNull();
+  });
+  it("does not mark failed body loads as read and leaves denied updates unread", async () => {
+    vi.mocked(outlookApi.message).mockRejectedValueOnce(
+      "Connection unavailable",
+    );
+    await render(true);
+    await click(host.querySelector<HTMLButtonElement>(".row-main")!);
+    expect(outlookApi.markRead).not.toHaveBeenCalled();
+    await click(
+      host.querySelector<HTMLButtonElement>(".outlook-reader-toolbar button")!,
+    );
+    vi.mocked(outlookApi.message).mockResolvedValueOnce({
+      id: summary.id,
+      body: { contentType: "text", content: "Hello" },
+    });
+    vi.mocked(outlookApi.markRead).mockRejectedValueOnce("Permission denied");
+    await click(host.querySelector<HTMLButtonElement>(".row-main")!);
+    expect(host.textContent).toContain("Permission denied");
+    await click(
+      host.querySelector<HTMLButtonElement>(".outlook-reader-toolbar button")!,
+    );
+    expect(host.querySelector(".mail-row.unread")).not.toBeNull();
+  });
+  it("reads non-inbox folders without relevance filtering and keeps separate message IDs", async () => {
+    vi.mocked(outlookApi.inbox).mockResolvedValueOnce({
+      messages: [summary, { ...summary, id: "second-copy" }],
+      hasMore: false,
+    });
+    await render(false, {
+      id: "sent-folder",
+      displayName: "Sent Items",
+      isInbox: false,
+      unreadItemCount: 0,
+      childFolderCount: 0,
+    });
+    expect(outlookApi.inbox).toHaveBeenCalledWith("all", false, "sent-folder");
+    expect(host.querySelector('[aria-label="Relevance view"]')).toBeNull();
+    expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
+    expect(host.querySelector("h1")?.textContent).toBe("Sent Items");
   });
 });

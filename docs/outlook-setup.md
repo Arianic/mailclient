@@ -16,7 +16,7 @@ You can do this in a browser on either computer. Microsoft requires access to an
    ```
 
    Use the desktop platform rather than Web or Single-page application. Leave implicit token flows off. Mail adds a random local port at runtime; Microsoft ignores the port for localhost matching, while the path must match. See [platform setup](https://learn.microsoft.com/en-us/graph/auth-register-app-v2) and [localhost matching](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url#localhost-exceptions).
-5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read** and **Mail.Read**. User.Read may already be present. Application/daemon permissions and Mail.ReadWrite are not needed. Add the delegated Mail.Send permission if you want to enable sending.
+5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read** and **Mail.Read**. User.Read may already be present. Add **Mail.Send** for sending and **Mail.ReadWrite** for read-status sync. Use delegated permissions for your personal account, with no client secret.
 
 Mail also requests `offline_access` during sign-in so it can renew access after restarting. [Microsoft explains this scope](https://learn.microsoft.com/en-us/entra/identity-platform/scopes-oidc#the-offline_access-scope). Mail.Read grants mailbox read access. Mail loads 100 headers per page and displays those matching the selected Important/Other view; an empty view can still have older pages to load.
 
@@ -34,7 +34,7 @@ The first build downloads additional Rust libraries. GNOME Keyring must be insta
 
 1. Open **Settings → Personal Outlook**, enter the Application (client) ID, and choose **Connect Outlook**.
 2. Your normal browser opens Microsoft. Check the app name and read/stay-signed-in permissions, then sign in to your personal account there. Passwords and MFA stay with Microsoft.
-3. Return to Mail when prompted. Your connected inbox opens automatically. Relaunching Mail opens it again; the native sidebar contains your actual Inbox and local Drafts. Sample mail is restricted to browser development previews.
+3. Return to Mail when prompted. Your connected inbox opens automatically. The sidebar lists real Outlook folders, including Sent Items, Archive, Junk, Deleted Items and your own folders using their provider names. Expand an arrow to load subfolders. **Local drafts** contains drafts written in this client; Outlook's own Drafts folder is a separate read-only message view. Sample mail is restricted to browser development previews.
 
 The local sign-in listener waits three minutes; **Cancel sign-in** stops waiting. Do not include sign-in URLs, codes, tokens or message contents in bug reports.
 
@@ -46,7 +46,17 @@ Use Compose or Reply. The From address is your connected account; To, Cc and Bcc
 
 Send waits five seconds with **Undo Send**. Closing a compose window during that delay cancels submission and saves the draft. Once submission starts, wait for its result. A successful response is reported as **Submitted to Outlook**, not confirmed delivery. If the response is lost, the draft is marked uncertain and cannot be resent automatically; check Outlook Sent Items before composing another copy. A process interruption during submission recovers as uncertain on restart.
 
-This version sends plain text. Rich text, outgoing attachments, scheduled sending and learned unusual-recipient warnings are still pending. Empty subjects and mentions of attachments prompt a warning before submission.
+The compose fields use an inline focus treatment. **Cc** and **Bcc** are hidden until requested unless the draft already contains those recipients. Both fields remain separate in the outgoing message, even if the same address appears in To and Cc. A recipient address listed twice normally receives one copy; the reader now shows To and Cc so you can check the headers.
+
+**Attach** opens a native file picker. Files are copied into the local draft database and survive closing/reopening the draft, even if the source file later changes or disappears. Remove a file with its × button. This first attachment implementation allows up to **2 MB total and 20 files**, for both new messages and replies; larger-file upload/sharing is pending. Attachments stay local until Send. Text changes cannot overwrite attachments, and attachments cannot change once submission starts.
+
+This version sends plain text. Rich text, scheduled sending and learned unusual-recipient warnings remain pending. Empty subjects and attachment mentions with no files attached prompt a warning before submission.
+
+### Enable read-status sync
+
+Choose **Settings → Personal Outlook → Enable read-status sync**, select the same account and approve **Mail.ReadWrite**. Add that delegated permission to your existing app registration first if Microsoft requires it. Existing Mail.Send access is preserved; no disconnection, new application ID or redirect URI is needed.
+
+Microsoft labels this permission as read/write mail access. The current client uses it only to mark opened messages read; it does not expose deletion or folder mutation actions. [Microsoft requires Mail.ReadWrite to update isRead](https://learn.microsoft.com/en-us/graph/api/message-update). After consent, unread messages are marked read after a successful body load. Failed body loads remain unread. Failed status updates leave the local row unread and show an error; refresh/reopen to retry. Without the permission, messages still open with a visible explanation that read status cannot sync.
 
 ## 4. Images, downloads and reading
 
@@ -61,9 +71,12 @@ The broker accepts HTTPS/public IPv4 image hosts only, pins DNS results, sends n
 - Resize the main window and check the reading surface grows in both directions.
 - Load images deliberately, save one, and download an attachment to a location you choose.
 - Compose a test to yourself, close/reopen its saved draft, then test Undo Send. When ready, send one test and verify Sent Items/receipt yourself.
+- Attach a small file, close/reopen its draft, remove/re-add it, and verify the received attachment contents after a deliberate test send.
+- Enable read-status sync, open an unread message, go back and verify its dot clears; confirm the same state in Outlook web.
+- Open Sent Items, Junk and a custom subfolder; Inbox alone should have the Important/Other switch.
 - Reopen after a restart to verify sign-in renewal and local draft persistence.
 
-Real Inbox headers, bodies and loaded images currently stay in memory. Local real drafts and send-state records persist in `outlook-drafts.sqlite`, separate from the prototype key-value store. This database is not encrypted at rest; the application data directory is owner-only on Linux. Credentials remain only in GNOME Keyring. Neither mail nor credentials enter settings exports. Offline Inbox caching and background/incremental synchronization are still pending.
+Real mail headers, bodies and loaded images currently stay in memory. Local real drafts, their attachment copies and send-state records persist in `outlook-drafts.sqlite`, separate from the prototype key-value store. Schema version 2 migrates existing local drafts in place. This database is not encrypted at rest; the application data directory is owner-only on Linux. Credentials remain only in GNOME Keyring. Neither mail nor credentials enter settings exports. Offline Inbox caching and background/incremental synchronization are still pending.
 
 Disconnect clears the app session and Keyring credentials after compose windows are closed. Local drafts remain on this device and are restricted to the matching account. Disconnect does not revoke Microsoft's consent or sign out your browser; remove the app grant separately in your Microsoft account if desired.
 
@@ -75,4 +88,4 @@ Authorization uses the personal-account `/consumers` authority, S256 PKCE and a 
 
 Automated checks cover the real local callback listener, cancellation, incorrect callback parameters, redacted errors, token-free public status, simulated secure-vault failures/refresh rotation, unknown message IDs and frontend body isolation/late responses. They use synthetic data and a test credential vault. The user confirmed initial Microsoft sign-in on CachyOS. New sending, paging and native save-dialog round trips still need laptop checks; development tests never send real mail.
 
-Deferred: offline Inbox cache, background/incremental sync, full threads, folder mutations, outgoing attachments, rich text, scheduled delivery and other providers. Work IMAP is not connected.
+Deferred: offline Inbox cache, background/incremental sync, full threads, folder mutations, editing Outlook-created drafts, large outgoing attachments, rich text, scheduled delivery and other providers. Work IMAP is not connected.

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Send, X } from "lucide-react";
+import { Send, X, Paperclip } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { outlookApi, type OutlookDraft } from "./outlook";
-import { dragNativeWindow } from "./desktop";
+import { dragNativeWindow, nativeDesktop } from "./desktop";
 
 export function OutlookComposer({ controls }: { controls: ReactNode }) {
   const id = new URLSearchParams(location.search).get("outlookCompose") || "";
@@ -13,6 +13,18 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
   const [phase, setPhase] = useState<"idle" | "countdown" | "sending">("idle");
   const [seconds, setSeconds] = useState(5);
   const [review, setReview] = useState(false);
+  const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
+  const [filesBusy, setFilesBusy] = useState(false);
+  const filesBusyRef = useRef(false);
+  const ccInput = useRef<HTMLInputElement>(null);
+  const bccInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (showCc) ccInput.current?.focus();
+  }, [showCc]);
+  useEffect(() => {
+    if (showBcc) bccInput.current?.focus();
+  }, [showBcc]);
   const latest = useRef(draft);
   latest.current = draft;
   const currentPhase = useRef(phase);
@@ -73,6 +85,10 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
     return () => clearTimeout(timeout);
   }, [draft]);
   const dismiss = async () => {
+    if (filesBusyRef.current) {
+      setStatus("Finish choosing attachments before closing");
+      return;
+    }
     if (currentPhase.current === "sending") {
       setStatus("Wait for Outlook’s send result before closing");
       return;
@@ -82,12 +98,13 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
     setPhase("idle");
     try {
       await save();
-      await getCurrentWindow().destroy();
+      if (nativeDesktop) await getCurrentWindow().destroy();
     } catch {
       setStatus("Not saved — keep this window open");
     }
   };
   useEffect(() => {
+    if (!nativeDesktop) return;
     let disposed = false;
     let stop: (() => void) | undefined;
     void getCurrentWindow()
@@ -143,6 +160,7 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
     }
   };
   const start = () => {
+    if (filesBusyRef.current) return;
     if (currentPhase.current !== "idle" || !draft || draft.state !== "draft")
       return;
     setReview(false);
@@ -164,7 +182,32 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
     setPhase("idle");
     setStatus("Send canceled. Your draft is saved.");
   };
-  const locked = !draft || phase !== "idle" || draft.state !== "draft";
+  const changeFiles = async (attachmentId?: string) => {
+    if (
+      filesBusyRef.current ||
+      currentPhase.current !== "idle" ||
+      latest.current?.state !== "draft"
+    )
+      return;
+    filesBusyRef.current = true;
+    setFilesBusy(true);
+    setError("");
+    try {
+      await save();
+      const attachments = attachmentId
+        ? await outlookApi.removeDraftFile(id, attachmentId)
+        : await outlookApi.addDraftFiles(id);
+      setDraft((draft) => (draft ? { ...draft, attachments } : draft));
+      setStatus("Attachments saved on this device");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      filesBusyRef.current = false;
+      setFilesBusy(false);
+    }
+  };
+  const locked =
+    !draft || phase !== "idle" || draft.state !== "draft" || filesBusy;
   return (
     <div className="compose-page">
       <form
@@ -172,10 +215,11 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
         aria-label="Compose Outlook message"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!draft) return;
+          if (locked || !canSend) return;
           if (
             !draft.subject.trim() ||
-            /\b(attach|attached|attachment|enclosed)\b/i.test(draft.body)
+            (!draft.attachments?.length &&
+              /\b(attach|attached|attachment|enclosed)\b/i.test(draft.body))
           )
             setReview(true);
           else start();
@@ -198,13 +242,15 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
         {error && (
           <div className="outlook-error" role="alert">
             {error}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => void save().catch(() => {})}
-            >
-              Retry saving
-            </button>
+            {status.startsWith("Not saved") && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => void save().catch(() => {})}
+              >
+                Retry saving
+              </button>
+            )}
           </div>
         )}
         {draft && (
@@ -214,27 +260,70 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
                 <span>From</span>
                 <strong className="real-from">{draft.account}</strong>
               </label>
-              {(["to", "cc", "bcc"] as const).map((field) => (
-                <label key={field}>
-                  <span>
-                    {field === "to" ? "To" : field === "cc" ? "Cc" : "Bcc"}
-                  </span>
-                  <input
-                    aria-label={
-                      field === "to" ? "To" : field === "cc" ? "Cc" : "Bcc"
-                    }
-                    required={field === "to"}
-                    value={draft[field]}
-                    disabled={locked}
-                    placeholder={
-                      field === "to"
-                        ? "Email addresses, separated by commas"
-                        : ""
-                    }
-                    onChange={(event) => update(field, event.target.value)}
-                  />
-                </label>
-              ))}
+              {(["to", "cc", "bcc"] as const)
+                .filter(
+                  (field) =>
+                    field === "to" ||
+                    (field === "cc" && (showCc || draft.cc)) ||
+                    (field === "bcc" && (showBcc || draft.bcc)),
+                )
+                .map((field) => (
+                  <label key={field}>
+                    <span>
+                      {field === "to" ? "To" : field === "cc" ? "Cc" : "Bcc"}
+                    </span>
+                    <input
+                      ref={
+                        field === "cc"
+                          ? ccInput
+                          : field === "bcc"
+                            ? bccInput
+                            : undefined
+                      }
+                      aria-label={
+                        field === "to" ? "To" : field === "cc" ? "Cc" : "Bcc"
+                      }
+                      required={field === "to"}
+                      autoFocus={field === "to" && !draft.replyId}
+                      inputMode="email"
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={draft[field]}
+                      disabled={locked}
+                      placeholder={
+                        field === "to"
+                          ? "Email addresses, separated by commas"
+                          : ""
+                      }
+                      onChange={(event) => update(field, event.target.value)}
+                    />
+                    {field === "to" && (
+                      <div className="recipient-options">
+                        {!showCc && !draft.cc && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={locked}
+                            onClick={() => setShowCc(true)}
+                          >
+                            Cc
+                          </button>
+                        )}
+                        {!showBcc && !draft.bcc && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={locked}
+                            onClick={() => setShowBcc(true)}
+                          >
+                            Bcc
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </label>
+                ))}
               <label>
                 <span>Subject</span>
                 <input
@@ -247,18 +336,47 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
             </div>
             <textarea
               className="compose-body"
+              autoFocus={!!draft.replyId}
               aria-label="Message body"
               value={draft.body}
               disabled={locked}
               placeholder="Write your message…"
               onChange={(event) => update("body", event.target.value)}
             />
+            {!!draft.attachments?.length && (
+              <div
+                className="compose-files real-compose-files"
+                aria-label="Attachments"
+              >
+                {draft.attachments.map((file) => (
+                  <div className="attachment" key={file.id}>
+                    <Paperclip size={13} />
+                    <span>
+                      {file.name}
+                      <small>
+                        {Math.max(1, Math.ceil(file.size / 1000))} KB
+                      </small>
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Remove ${file.name}`}
+                      disabled={locked}
+                      onClick={() => void changeFiles(file.id)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {review && (
               <div className="outlook-error" role="alert">
                 <p>
                   {!draft.subject.trim() ? "This message has no subject. " : ""}
-                  {/\b(attach|attached|attachment|enclosed)\b/i.test(draft.body)
-                    ? "Your message mentions an attachment. Sending attachments is not available yet. "
+                  {!draft.attachments?.length &&
+                  /\b(attach|attached|attachment|enclosed)\b/i.test(draft.body)
+                    ? "Your message mentions an attachment, but no files are attached. "
                     : ""}
                   Send anyway?
                 </p>
@@ -281,6 +399,16 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
               </p>
             )}
             <footer className="compose-footer">
+              <button
+                type="button"
+                className="soft-button"
+                disabled={locked}
+                onClick={() => void changeFiles()}
+                title="Attach local files · up to 2 MB total"
+              >
+                <Paperclip size={15} />
+                {filesBusy ? "Attaching…" : "Attach"}
+              </button>
               {phase === "countdown" ? (
                 <button type="button" className="primary-button" onClick={undo}>
                   Undo Send · {seconds}s
@@ -300,7 +428,7 @@ export function OutlookComposer({ controls }: { controls: ReactNode }) {
               </span>
             </footer>
             <p className="compose-permission">
-              Plain text · local draft · no attachments or scheduled sending yet
+              Plain text · local draft · attachments up to 2 MB total
             </p>
           </>
         )}

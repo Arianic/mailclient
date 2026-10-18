@@ -1,7 +1,7 @@
 use crate::{
     outlook::{
         self,
-        drafts::{Draft, DraftStore},
+        drafts::{Draft, DraftAttachment, DraftStore, ATTACHMENT_LIMIT},
     },
     valid_draft_id,
 };
@@ -25,6 +25,104 @@ fn draft_window(window: &WebviewWindow, id: &str) -> Result<(), String> {
         return Err("This window cannot edit that draft".into());
     }
     Ok(())
+}
+#[tauri::command]
+pub async fn outlook_folders(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    parent: Option<String>,
+) -> Result<Vec<outlook::folders::Folder>, String> {
+    crate::main_window(&window)?;
+    app.state::<outlook::OutlookService>().folders(parent).await
+}
+#[tauri::command]
+pub async fn outlook_mark_read(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: String,
+) -> Result<(), String> {
+    crate::main_window(&window)?;
+    app.state::<outlook::OutlookService>().mark_read(id).await
+}
+#[tauri::command]
+pub async fn outlook_add_draft_files(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: String,
+) -> Result<Vec<DraftAttachment>, String> {
+    // Reuse the exact window/account check; only a native picker supplies paths.
+    let draft = outlook_load_draft(app.clone(), window.clone(), id.clone()).await?;
+    if draft.state != "draft" {
+        return Err("This draft cannot be edited".into());
+    }
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_files(move |paths| {
+        let _ = sender.send(paths);
+    });
+    let Some(paths) = receiver
+        .await
+        .map_err(|_| "The file picker closed unexpectedly")?
+    else {
+        return Ok(draft.attachments);
+    };
+    if paths.len() > 20 {
+        return Err("Choose up to 20 attachments".into());
+    }
+    let files = tokio::task::spawn_blocking(move || -> Result<Vec<(String, Vec<u8>)>, String> {
+        use std::io::Read;
+        let mut files = Vec::new();
+        let mut total = 0;
+        for path in paths {
+            let path = path.into_path().map_err(|_| "Choose a local file")?;
+            let file = std::fs::File::open(&path).map_err(|_| "Could not open the chosen file")?;
+            if !file
+                .metadata()
+                .map_err(|_| "Could not inspect file")?
+                .is_file()
+            {
+                return Err("Choose regular files for attachments".into());
+            }
+            let mut bytes = Vec::new();
+            file.take((ATTACHMENT_LIMIT + 1) as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "Could not read chosen file")?;
+            total += bytes.len();
+            if total > ATTACHMENT_LIMIT {
+                return Err("Attachments can total up to 2 MB in this version.".into());
+            }
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("attachment")
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(240)
+                .collect::<String>();
+            files.push((
+                if name.is_empty() {
+                    "attachment".into()
+                } else {
+                    name
+                },
+                bytes,
+            ));
+        }
+        Ok(files)
+    })
+    .await
+    .map_err(|_| "Could not read chosen files")??;
+    outlook_load_draft(app.clone(), window, id.clone()).await?;
+    app.state::<DraftStore>().add_files(&id, files)
+}
+#[tauri::command]
+pub async fn outlook_remove_draft_file(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: String,
+    attachment_id: String,
+) -> Result<Vec<DraftAttachment>, String> {
+    outlook_load_draft(app.clone(), window, id.clone()).await?;
+    app.state::<DraftStore>().remove_file(&id, &attachment_id)
 }
 #[tauri::command]
 pub async fn open_outlook_compose(

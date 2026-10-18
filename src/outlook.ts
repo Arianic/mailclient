@@ -7,6 +7,7 @@ export type OutlookStatus = {
   account: OutlookAccount | null;
   clientId: string | null;
   canSend: boolean;
+  canManage?: boolean;
 };
 export type OutlookSummary = {
   id: string;
@@ -23,6 +24,8 @@ export type OutlookInbox = { messages: OutlookSummary[]; hasMore: boolean };
 export type OutlookMessage = {
   id: string;
   body: { contentType: string; content: string };
+  toRecipients?: OutlookSummary["from"][];
+  ccRecipients?: OutlookSummary["from"][];
 };
 export type OutlookDraft = {
   id: string;
@@ -34,6 +37,15 @@ export type OutlookDraft = {
   body: string;
   replyId: string | null;
   state: "draft" | "sending" | "accepted" | "uncertain";
+  attachments?: DraftAttachment[];
+};
+export type DraftAttachment = { id: string; name: string; size: number };
+export type OutlookFolder = {
+  id: string;
+  displayName: string;
+  unreadItemCount: number;
+  childFolderCount: number;
+  isInbox: boolean;
 };
 export type OutlookAttachment = {
   id: string;
@@ -60,14 +72,28 @@ function read<T>(key: string, action: () => Promise<T>): Promise<T> {
 // kept out of the prototype's localStorage/SQLite key-value state and exports.
 export const outlookApi = {
   status: () => read("status", () => invoke<OutlookStatus>("outlook_status")),
-  connect: (clientId: string, enableSending = false) =>
-    invoke<OutlookStatus>("outlook_connect", { clientId, enableSending }),
+  connect: (clientId: string, enableSending = false, enableManaging = false) =>
+    invoke<OutlookStatus>("outlook_connect", {
+      clientId,
+      enableSending,
+      enableManaging,
+    }),
   cancel: () => invoke<void>("outlook_cancel"),
   disconnect: () => invoke<void>("outlook_disconnect"),
-  inbox: (view: "important" | "other" = "important", older = false) =>
-    read(`inbox:${view}:${older}`, () =>
-      invoke<OutlookInbox>("outlook_inbox", { view, older }),
+  inbox: (
+    view: "important" | "other" | "all" = "important",
+    older = false,
+    folder = "inbox",
+  ) =>
+    read(`inbox:${folder}:${view}:${older}`, () =>
+      invoke<OutlookInbox>("outlook_inbox", { view, older, folder }),
     ),
+  folders: (parent: string | null = null) =>
+    read(`folders:${parent}`, () =>
+      invoke<OutlookFolder[]>("outlook_folders", { parent }),
+    ),
+  markRead: (id: string) =>
+    read(`read:${id}`, () => invoke<void>("outlook_mark_read", { id })),
   message: (id: string) =>
     read(`message:${id}`, () =>
       invoke<OutlookMessage>("outlook_message", { id }),
@@ -82,6 +108,13 @@ export const outlookApi = {
   saveDraft: (draft: OutlookDraft) =>
     invoke<void>("outlook_save_draft", { draft }),
   sendDraft: (id: string) => invoke<string>("outlook_send_draft", { id }),
+  addDraftFiles: (id: string) =>
+    invoke<DraftAttachment[]>("outlook_add_draft_files", { id }),
+  removeDraftFile: (id: string, attachmentId: string) =>
+    invoke<DraftAttachment[]>("outlook_remove_draft_file", {
+      id,
+      attachmentId,
+    }),
   attachments: (id: string) =>
     read(`files:${id}`, () =>
       invoke<OutlookAttachment[]>("outlook_attachments", { id }),
@@ -125,11 +158,17 @@ export function useOutlook() {
   useEffect(() => {
     if (nativeDesktop) void check();
   }, []);
-  const connect = async (enableSending = false) => {
+  const connect = async (enableSending = false, enableManaging = false) => {
     setBusy("connecting");
     setError("");
     try {
-      setStatus(await outlookApi.connect(clientId.trim(), enableSending));
+      setStatus(
+        await outlookApi.connect(
+          clientId.trim(),
+          enableSending,
+          enableManaging,
+        ),
+      );
     } catch (error) {
       setError(String(error));
     } finally {

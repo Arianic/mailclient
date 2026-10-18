@@ -1,5 +1,6 @@
 mod auth;
 pub mod drafts;
+pub mod folders;
 pub mod media;
 mod vault;
 
@@ -46,6 +47,9 @@ struct Session {
     known_messages: HashMap<String, MessageSummary>,
     next_page: Option<String>,
     inbox_view: String,
+    inbox_folder: String,
+    known_folders: std::collections::HashSet<String>,
+    inbox_id: Option<String>,
     opened_message: Option<Message>,
     loaded_images: Vec<Vec<u8>>,
 }
@@ -57,6 +61,8 @@ struct Credential {
     account: Account,
     #[serde(default)]
     send_enabled: bool,
+    #[serde(default)]
+    manage_enabled: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +76,7 @@ pub struct Status {
     pub account: Option<Account>,
     pub client_id: Option<String>,
     pub can_send: bool,
+    pub can_manage: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,6 +132,10 @@ pub struct Body {
 pub struct Message {
     pub id: String,
     pub body: Body,
+    #[serde(default)]
+    pub to_recipients: Vec<Sender>,
+    #[serde(default)]
+    pub cc_recipients: Vec<Sender>,
 }
 
 fn valid_client_id(value: &str) -> bool {
@@ -232,6 +243,10 @@ impl OutlookService {
             session.credential = self.read_credential().await?;
         }
         Ok(Status {
+            can_manage: session
+                .credential
+                .as_ref()
+                .is_some_and(|value| value.manage_enabled),
             can_send: session
                 .credential
                 .as_ref()
@@ -253,6 +268,7 @@ impl OutlookService {
         &self,
         client_id: String,
         enable_sending: bool,
+        enable_managing: bool,
         open_browser: impl FnOnce(&str) -> Result<(), String>,
     ) -> Result<Status, String> {
         let client_id = client_id.trim().to_string();
@@ -270,7 +286,7 @@ impl OutlookService {
             Some(value) => Some(value.clone()),
             None => self.read_credential().await?,
         };
-        if previous.is_some() && !enable_sending {
+        if previous.is_some() && !enable_sending && !enable_managing {
             return Err("Disconnect the current Outlook account before adding another.".into());
         }
         if previous
@@ -300,9 +316,17 @@ impl OutlookService {
             .add_scopes(SCOPES.map(|scope| Scope::new(scope.into())))
             .add_extra_param("prompt", "select_account")
             .set_pkce_challenge(challenge);
-        if enable_sending {
+        let want_send = enable_sending || previous.as_ref().is_some_and(|value| value.send_enabled);
+        let want_manage =
+            enable_managing || previous.as_ref().is_some_and(|value| value.manage_enabled);
+        if want_send {
             authorization =
                 authorization.add_scope(Scope::new("https://graph.microsoft.com/Mail.Send".into()));
+        }
+        if want_manage {
+            authorization = authorization.add_scope(Scope::new(
+                "https://graph.microsoft.com/Mail.ReadWrite".into(),
+            ));
         }
         let (url, state) = authorization.url();
         open_browser(url.as_str())?;
@@ -333,7 +357,7 @@ impl OutlookService {
         {
             return Err("Select the same Outlook account to enable sending. Your existing sign-in was kept.".into());
         }
-        let can_send = enable_sending
+        let can_send = want_send
             && token.scopes().is_some_and(|scopes| {
                 scopes.iter().any(|scope| {
                     scope.as_str().eq_ignore_ascii_case("Mail.Send")
@@ -342,12 +366,26 @@ impl OutlookService {
                             .eq_ignore_ascii_case("https://graph.microsoft.com/Mail.Send")
                 })
             });
-        if enable_sending && !can_send {
+        if want_send && !can_send {
             return Err(
                 "Microsoft did not grant Mail.Send. Your existing read access was kept.".into(),
             );
         }
-        let credential = Credential { client_id: client_id.clone(), account: account.clone(), send_enabled: can_send,
+        let can_manage = want_manage
+            && token.scopes().is_some_and(|scopes| {
+                scopes.iter().any(|scope| {
+                    scope.as_str().eq_ignore_ascii_case("Mail.ReadWrite")
+                        || scope
+                            .as_str()
+                            .eq_ignore_ascii_case("https://graph.microsoft.com/Mail.ReadWrite")
+                })
+            });
+        if want_manage && !can_manage {
+            return Err(
+                "Microsoft did not grant Mail.ReadWrite. Your existing sign-in was kept.".into(),
+            );
+        }
+        let credential = Credential { client_id: client_id.clone(), account: account.clone(), send_enabled: can_send, manage_enabled: can_manage,
             refresh_token: token.refresh_token().map(|value| value.secret().clone()).filter(|value| !value.is_empty()).ok_or("Microsoft did not allow staying signed in. Reconnect and allow offline access.")? };
         if self.canceled.load(Ordering::SeqCst) {
             return Err("Sign-in canceled".into());
@@ -368,6 +406,7 @@ impl OutlookService {
             account: Some(account),
             client_id: Some(client_id),
             can_send,
+            can_manage,
         })
     }
     async fn access(&self, session: &mut Session) -> Result<String, String> {
@@ -451,14 +490,17 @@ impl OutlookService {
         serde_json::from_slice(&bytes)
             .map_err(|_| "Outlook returned an unsupported response. No message was changed.".into())
     }
-    pub async fn inbox(&self, view: String, older: bool) -> Result<Inbox, String> {
+    pub async fn inbox(&self, view: String, older: bool, folder: String) -> Result<Inbox, String> {
         let mut session = self.session.lock().await;
         let token = self.access(&mut session).await?;
-        if !matches!(view.as_str(), "important" | "other") {
+        if !matches!(view.as_str(), "important" | "other" | "all") {
             return Err("Invalid inbox view".into());
         }
+        if folder != "inbox" && !session.known_folders.contains(&folder) {
+            return Err("Open the folder list before selecting this folder.".into());
+        }
         let url = if older {
-            if session.inbox_view != view {
+            if session.inbox_view != view || session.inbox_folder != folder {
                 return Err("Refresh this inbox view before loading older mail.".into());
             }
             session
@@ -466,8 +508,12 @@ impl OutlookService {
                 .clone()
                 .ok_or("All messages in this view have been loaded.")?
         } else {
-            let mut url =
-                reqwest::Url::parse(&format!("{GRAPH}/me/mailFolders/inbox/messages")).unwrap();
+            let mut url = reqwest::Url::parse(&format!("{GRAPH}/me/mailFolders/")).unwrap();
+            url.path_segments_mut()
+                .unwrap()
+                .pop_if_empty()
+                .push(&folder)
+                .push("messages");
             url.query_pairs_mut().append_pair("$top", "100")
                 .append_pair("$orderby", "receivedDateTime desc")
                 .append_pair("$select", "id,subject,from,replyTo,receivedDateTime,isRead,hasAttachments,inferenceClassification");
@@ -495,13 +541,15 @@ impl OutlookService {
         );
         session.next_page = next_page;
         session.inbox_view = view.clone();
+        session.inbox_folder = folder;
         Ok(Inbox {
             messages: response
                 .value
                 .into_iter()
                 .filter(|message| {
-                    (message.inference_classification.as_deref() == Some("focused"))
-                        == (view == "important")
+                    view == "all"
+                        || (message.inference_classification.as_deref() == Some("focused"))
+                            == (view == "important")
                 })
                 .collect(),
             has_more: session.next_page.is_some(),
@@ -519,7 +567,8 @@ impl OutlookService {
             .map_err(|_| "Could not prepare the message address")?
             .pop_if_empty()
             .push(&id);
-        url.query_pairs_mut().append_pair("$select", "id,body");
+        url.query_pairs_mut()
+            .append_pair("$select", "id,body,toRecipients,ccRecipients");
         let result: Result<Message, String> = self.get(url.as_str(), &token).await;
         if matches!(&result, Err(message) if message == SESSION_EXPIRED) {
             session.access = None;
@@ -577,6 +626,7 @@ mod tests {
             client_id: "11111111-2222-3333-4444-555555555555".into(),
             refresh_token: "refresh-secret".into(),
             send_enabled: false,
+            manage_enabled: false,
             account: Account {
                 email: "you@outlook.example".into(),
                 display_name: "Example".into(),
@@ -587,8 +637,10 @@ mod tests {
     fn old_read_only_credentials_do_not_silently_enable_sending() {
         let mut value = serde_json::to_value(credential()).unwrap();
         value.as_object_mut().unwrap().remove("send_enabled");
+        value.as_object_mut().unwrap().remove("manage_enabled");
         let old: Credential = serde_json::from_value(value).unwrap();
         assert!(!old.send_enabled);
+        assert!(!old.manage_enabled);
     }
     #[test]
     fn paging_never_sends_tokens_to_an_untrusted_origin() {
@@ -660,6 +712,37 @@ mod tests {
             .message("https://attacker.example/steal".into())
             .await
             .is_err());
+    }
+    #[tokio::test]
+    async fn marking_read_requires_the_opened_message_and_explicit_write_consent() {
+        let service = OutlookService::new().unwrap();
+        assert!(service
+            .mark_read("unopened-id".into())
+            .await
+            .unwrap_err()
+            .contains("Open the message"));
+        {
+            let mut session = service.session.lock().await;
+            session.credential = Some(credential());
+            session.access = Some((
+                "test-token-never-sent".into(),
+                Instant::now() + Duration::from_secs(300),
+            ));
+            session.opened_message = Some(Message {
+                id: "opened-id".into(),
+                body: Body {
+                    content_type: "Text".into(),
+                    content: "Hello".into(),
+                },
+                to_recipients: Vec::new(),
+                cc_recipients: Vec::new(),
+            });
+        }
+        assert!(service
+            .mark_read("opened-id".into())
+            .await
+            .unwrap_err()
+            .contains("Enable read-status sync"));
     }
     fn renewed_token() -> BasicTokenResponse {
         serde_json::from_value(serde_json::json!({"access_token":"new-access-secret", "refresh_token":"new-refresh-secret", "token_type":"Bearer", "expires_in":3600})).unwrap()

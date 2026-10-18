@@ -9,13 +9,18 @@ const native = vi.hoisted(() => ({
   onCloseRequested: vi.fn().mockResolvedValue(() => {}),
 }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
-vi.mock("./desktop", () => ({ dragNativeWindow: vi.fn() }));
+vi.mock("./desktop", () => ({
+  dragNativeWindow: vi.fn(),
+  nativeDesktop: true,
+}));
 vi.mock("./outlook", () => ({
   outlookApi: {
     status: vi.fn(),
     loadDraft: vi.fn(),
     saveDraft: vi.fn(),
     sendDraft: vi.fn(),
+    addDraftFiles: vi.fn(),
+    removeDraftFile: vi.fn(),
   },
 }));
 let root: Root;
@@ -116,5 +121,28 @@ describe("real Outlook composer", () => {
     await click("Close compose");
     expect(native.destroy).not.toHaveBeenCalled();
     expect(host.textContent).toContain("Not saved");
+  });
+  it("reveals optional recipient fields without replacing typed recipients", async () => {
+    await render();
+    expect(host.querySelector('input[aria-label="Cc"]')).toBeNull();
+    await click("Cc");
+    expect(host.querySelector('input[aria-label="Cc"]')).not.toBeNull();
+    expect(
+      (host.querySelector('input[aria-label="To"]') as HTMLInputElement).value,
+    ).toBe(draft.to);
+  });
+  it("attaches a local file, persists it, and removes it without sending", async () => {
+    vi.mocked(outlookApi.addDraftFiles).mockResolvedValue([
+      { id: "file-1", name: "report.pdf", size: 500 },
+    ]);
+    vi.mocked(outlookApi.removeDraftFile).mockResolvedValue([]);
+    await render();
+    await click("Attach");
+    expect(outlookApi.addDraftFiles).toHaveBeenCalledExactlyOnceWith("test-1");
+    expect(host.textContent).toContain("report.pdf");
+    await click("Remove report.pdf");
+    expect(outlookApi.removeDraftFile).toHaveBeenCalledWith("test-1", "file-1");
+    expect(host.textContent).not.toContain("report.pdf");
+    expect(outlookApi.sendDraft).not.toHaveBeenCalled();
   });
 });

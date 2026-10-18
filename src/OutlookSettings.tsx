@@ -40,6 +40,15 @@ export function OutlookSettings({
           </p>
           <div className="outlook-actions">
             <button
+              className="soft-button"
+              disabled={!!busy}
+              onClick={() => void connect(false, true)}
+            >
+              {status.canManage
+                ? "Review read-status permission"
+                : "Enable read-status sync"}
+            </button>
+            <button
               className="primary-button"
               onClick={openInbox}
               disabled={!!busy}
@@ -70,6 +79,11 @@ export function OutlookSettings({
               </button>
             )}
           </div>
+          <p className="settings-note">
+            {status.canManage
+              ? "Opening a message marks it as read in Outlook."
+              : "Read-status sync needs Microsoft Mail.ReadWrite permission. Sending permission is kept when you enable it."}
+          </p>
         </>
       ) : (
         <>

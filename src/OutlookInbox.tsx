@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { SafeMessage } from "./SafeMessage";
 import { sanitizeMailHtml } from "./mail-renderer";
+import { defaultOutlookFolder } from "./OutlookFolders";
 import {
   outlookApi,
   type OutlookAccount,
@@ -17,6 +18,7 @@ import {
   type OutlookSummary,
   type OutlookAttachment,
   type OutlookImages,
+  type OutlookFolder,
 } from "./outlook";
 
 function date(value: string, full = false) {
@@ -42,11 +44,15 @@ export function OutlookInbox({
   dark,
   query,
   compose,
+  folder = defaultOutlookFolder,
+  canManage = false,
 }: {
   account: OutlookAccount;
   dark: boolean;
   query: string;
   compose: (replyId?: string) => void;
+  folder?: OutlookFolder;
+  canManage?: boolean;
 }) {
   const [view, setView] = useState<"important" | "other">("important");
   const [inbox, setInbox] = useState<Inbox | null>(null);
@@ -54,6 +60,7 @@ export function OutlookInbox({
   const [body, setBody] = useState<OutlookMessage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [readStatus, setReadStatus] = useState("");
   const [files, setFiles] = useState<OutlookAttachment[] | null>(null);
   const [images, setImages] = useState<OutlookImages | null>(null);
   const [mediaBusy, setMediaBusy] = useState(false);
@@ -68,7 +75,11 @@ export function OutlookInbox({
     setBusy(true);
     setError("");
     try {
-      const next = await outlookApi.inbox(view, older);
+      const next = await outlookApi.inbox(
+        folder.isInbox ? view : "all",
+        older,
+        folder.id,
+      );
       if (generation === request.current)
         setInbox((current) =>
           older && current
@@ -131,9 +142,38 @@ export function OutlookInbox({
     setFiles(null);
     setMediaStatus("");
     setMediaBusy(false);
+    setReadStatus("");
     try {
       const next = await outlookApi.message(message.id);
-      if (generation === request.current) setBody(next);
+      if (generation === request.current) {
+        setBody(next);
+        if (!message.isRead) {
+          if (canManage) {
+            try {
+              await outlookApi.markRead(message.id);
+              setInbox((current) =>
+                current
+                  ? {
+                      ...current,
+                      messages: current.messages.map((row) =>
+                        row.id === message.id ? { ...row, isRead: true } : row,
+                      ),
+                    }
+                  : current,
+              );
+              if (generation === request.current) {
+                setSelected({ ...message, isRead: true });
+                setReadStatus("Marked as read");
+              }
+            } catch (error) {
+              if (generation === request.current) setReadStatus(String(error));
+            }
+          } else
+            setReadStatus(
+              "Enable read-status sync in Settings → Personal Outlook to mark messages as read.",
+            );
+        }
+      }
     } catch (error) {
       if (generation === request.current) setError(String(error));
     } finally {
@@ -172,7 +212,7 @@ export function OutlookInbox({
           <div className="outlook-reader-toolbar">
             <button className="soft-button" onClick={back}>
               <ArrowLeft size={15} />
-              Inbox
+              {folder.displayName}
             </button>
             <button
               className="soft-button"
@@ -181,10 +221,34 @@ export function OutlookInbox({
               <Reply size={15} />
               Reply
             </button>
-            <span className="subtle">Opening leaves read status unchanged</span>
+            <span className="subtle" role="status">
+              {readStatus}
+            </span>
           </div>
           <section className="outlook-reading-surface">
             <h1>{selected.subject || "(No subject)"}</h1>
+            {body && (
+              <div className="message-recipients">
+                {!!body.toRecipients?.length && (
+                  <p>
+                    <span>To</span>{" "}
+                    {body.toRecipients
+                      .map((recipient) => recipient?.emailAddress.address)
+                      .filter(Boolean)
+                      .join(", ")}
+                  </p>
+                )}
+                {!!body.ccRecipients?.length && (
+                  <p>
+                    <span>Cc</span>{" "}
+                    {body.ccRecipients
+                      .map((recipient) => recipient?.emailAddress.address)
+                      .filter(Boolean)
+                      .join(", ")}
+                  </p>
+                )}
+              </div>
+            )}
             <header className="outlook-message-header">
               <div>
                 <strong>{sender(selected)}</strong>
@@ -339,7 +403,7 @@ export function OutlookInbox({
         <>
           <div className="page-heading">
             <div>
-              <h1>Inbox</h1>
+              <h1>{folder.displayName}</h1>
               <p>{account.email}</p>
             </div>
             <span className="account-label">
@@ -349,19 +413,21 @@ export function OutlookInbox({
           </div>
           <section className="mail-panel">
             <div className="list-toolbar">
-              <div className="segmented" aria-label="Relevance view">
-                {(["important", "other"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    className={view === tab ? "selected" : ""}
-                    aria-pressed={view === tab}
-                    disabled={busy}
-                    onClick={() => setView(tab)}
-                  >
-                    {tab === "important" ? "Important" : "Other"}
-                  </button>
-                ))}
-              </div>
+              {folder.isInbox && (
+                <div className="segmented" aria-label="Relevance view">
+                  {(["important", "other"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      className={view === tab ? "selected" : ""}
+                      aria-pressed={view === tab}
+                      disabled={busy}
+                      onClick={() => setView(tab)}
+                    >
+                      {tab === "important" ? "Important" : "Other"}
+                    </button>
+                  ))}
+                </div>
+              )}
               <span className="grow" />
               <button
                 className="text-button"
@@ -387,7 +453,7 @@ export function OutlookInbox({
                 <div className="empty-state">
                   {query
                     ? "No matches in the loaded messages."
-                    : `No ${view === "important" ? "Important" : "Other"} messages in this loaded range.`}
+                    : `No ${folder.isInbox ? (view === "important" ? "Important " : "Other ") : ""}messages in this loaded range.`}
                   {inbox.hasMore && (
                     <span>Load older messages to look further back.</span>
                   )}
@@ -411,7 +477,7 @@ export function OutlookInbox({
                     <span className="subject">
                       {message.subject || "(No subject)"}
                     </span>
-                    {!message.inferenceClassification && (
+                    {folder.isInbox && !message.inferenceClassification && (
                       <span className="needs-review">Needs review</span>
                     )}
                     {message.hasAttachments && (
@@ -431,7 +497,7 @@ export function OutlookInbox({
             <div className="list-footer">
               <span>
                 {inbox
-                  ? `${inbox.messages.length} messages loaded in ${view === "important" ? "Important" : "Other"}`
+                  ? `${inbox.messages.length} messages loaded in ${folder.isInbox ? (view === "important" ? "Important" : "Other") : folder.displayName}`
                   : ""}
               </span>
               {inbox?.hasMore && (
@@ -446,8 +512,10 @@ export function OutlookInbox({
             </div>
           </section>
           <p className="inbox-note">
-            Important follows Outlook’s Focused Inbox. Search covers loaded
-            sender and subject lines.
+            {folder.isInbox
+              ? "Important follows Outlook’s Focused Inbox. "
+              : ""}
+            Search covers loaded sender and subject lines.
           </p>
         </>
       )}

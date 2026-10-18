@@ -6,6 +6,8 @@ Read `outputs/mail-client-action-plan.md` for the agreed requirements. Native Ma
 
 Visual commitments: soft WhiteSur-inspired appearance, left window controls, system font, light/dark/system appearance, blue accent, translucent chrome with opaque fallback, compact rows in spacious framing, hidden sidebar, single-view inbox/conversations, separate compose windows, full calendar via a small top-bar switch. Prefer quiet desktop-app surfaces over promotional headings or decorative content.
 
+Current refinement adds real Outlook folder/subfolder browsing, optional Mail.ReadWrite consent for marking opened mail read, and local draft attachment copies (2 MB total/20 files). Preserve existing sending consent when requesting read-status permission and vice versa. Attachment paths come only from a native picker, bytes stay in the backend/local draft DB, and send claims freeze attachment changes as well as recipients/body. The Outlook server Drafts folder is currently read-only; the client's Local drafts remain separate. No live mail is sent by automated tests.
+
 Work mail and any derived work content must never be sent to cloud AI, including through search, plugins or diagnostics. Automatic cloud AI for eligible personal mail is limited to sender and subject. Message bodies require a deliberate user action. AI remains optional; usage limits follow measurement.
 
 Use `npm run build` to check types and production output. Verify meaningful interactions and both themes in the browser. Native GNOME behavior is not verified by a Windows browser preview.

@@ -50,6 +50,7 @@ import "./styles.css";
 import { SafeMessage } from "./SafeMessage";
 import { ThemedSelect } from "./ThemedSelect";
 import { useOutlook, outlookApi } from "./outlook";
+import { OutlookFolders, defaultOutlookFolder } from "./OutlookFolders";
 import { OutlookComposer } from "./OutlookComposer";
 import { OutlookDrafts } from "./OutlookDrafts";
 import { OutlookSettings } from "./OutlookSettings";
@@ -479,9 +480,11 @@ function App() {
   useEffect(() => {
     if (!nativeDesktop || !outlook.ready) return;
     setView(outlook.status.account ? "outlook" : "settings");
+    setOutlookFolder(defaultOutlookFolder);
     setSidebar(false);
   }, [outlook.ready, outlook.status.account?.email]);
   const [folder, setFolder] = useState("inbox");
+  const [outlookFolder, setOutlookFolder] = useState(defaultOutlookFolder);
   const [tab, setTab] = useState("important");
   const [sidebar, setSidebar] = useState(false);
   const [query, setQuery] = useState("");
@@ -818,7 +821,7 @@ function App() {
                     <PanelLeftClose size={15} />
                   </IconButton>
                 </div>
-                {outlook.status.account && (
+                {outlook.status.account && !nativeDesktop && (
                   <button
                     className={`nav-item ${view === "outlook" ? "selected" : ""}`}
                     onClick={() => {
@@ -831,6 +834,17 @@ function App() {
                     Outlook inbox
                   </button>
                 )}
+                {nativeDesktop && outlook.status.account && (
+                  <OutlookFolders
+                    selected={view === "outlook" ? outlookFolder.id : ""}
+                    onSelect={(folder) => {
+                      setOutlookFolder(folder);
+                      setView("outlook");
+                      setQuery("");
+                      setSidebar(false);
+                    }}
+                  />
+                )}
                 {nativeDesktop && (
                   <button
                     className={`nav-item ${view === "drafts" ? "selected" : ""}`}
@@ -838,7 +852,7 @@ function App() {
                     onClick={() => navigate("drafts")}
                   >
                     <FileText size={17} />
-                    Drafts
+                    Local drafts
                   </button>
                 )}
                 {!nativeDesktop && (
@@ -922,6 +936,9 @@ function App() {
             {view === "drafts" && outlook.status.account && <OutlookDrafts />}
             {view === "outlook" && outlook.status.account && (
               <OutlookInbox
+                key={`${outlook.status.account.email}:${outlookFolder.id}`}
+                folder={outlookFolder}
+                canManage={!!outlook.status.canManage}
                 account={outlook.status.account}
                 dark={dark}
                 query={query}
@@ -1631,6 +1648,7 @@ function App() {
                   <OutlookSettings
                     connection={outlook}
                     openInbox={() => {
+                      setOutlookFolder(defaultOutlookFolder);
                       setQuery("");
                       setView("outlook");
                     }}

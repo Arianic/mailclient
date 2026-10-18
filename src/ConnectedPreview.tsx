@@ -6,6 +6,69 @@ import { OutlookInbox } from "./OutlookInbox";
 import { outlookApi, type OutlookSummary } from "./outlook";
 import { initialMail } from "./data";
 import icon from "../src-tauri/icons/icon.png";
+import { OutlookComposer } from "./OutlookComposer";
+import { OutlookFolders, defaultOutlookFolder } from "./OutlookFolders";
+import type { OutlookDraft, OutlookFolder } from "./outlook";
+
+let previewDraft: OutlookDraft = {
+  id: "preview-draft",
+  account: "you@outlook.example",
+  to: "",
+  cc: "",
+  bcc: "",
+  subject: "",
+  body: "",
+  replyId: null,
+  state: "draft",
+  attachments: [],
+};
+outlookApi.status = async () => ({
+  account: { email: previewDraft.account, displayName: "Example" },
+  clientId: "fixture",
+  canSend: true,
+  canManage: true,
+});
+outlookApi.loadDraft = async () => previewDraft;
+outlookApi.saveDraft = async (draft) => {
+  previewDraft = { ...draft };
+};
+outlookApi.addDraftFiles = async () => [
+  { id: "draft-file", name: "trip-notes.pdf", size: 45000 },
+];
+outlookApi.removeDraftFile = async () => [];
+outlookApi.sendDraft = async () => "Development fixture — no email sent";
+outlookApi.markRead = async (id) => {
+  const message = messages.find((message) => message.id === id);
+  if (message) message.isRead = true;
+};
+outlookApi.folders = async (parent = null) =>
+  parent
+    ? [
+        {
+          id: "child-1",
+          displayName: "Travel",
+          isInbox: false,
+          unreadItemCount: 2,
+          childFolderCount: 0,
+        },
+      ]
+    : [
+        defaultOutlookFolder,
+        ...[
+          "Sent Items",
+          "Archive",
+          "Junk Email",
+          "Deleted Items",
+          "Outlook Drafts",
+          "Personal",
+        ].map((displayName, index) => ({
+          id: `folder-${index}`,
+          displayName,
+          isInbox: false,
+          unreadItemCount: 0,
+          childFolderCount: index === 5 ? 1 : 0,
+        })),
+      ];
 
 const messages: OutlookSummary[] = Array.from({ length: 140 }, (_, index) => {
   const sample = initialMail[index % initialMail.length];
@@ -26,7 +89,7 @@ outlookApi.inbox = async (view = "important", older = false) => ({
     .filter(
       (message) =>
         (message.inferenceClassification === "focused") ===
-        (view === "important"),
+          (view === "important") || view === "all",
     )
     .slice(older ? 10 : 0, older ? 70 : 10),
   hasMore: !older,
@@ -65,11 +128,33 @@ outlookApi.downloadImage = async () => false;
 export function ConnectedPreview() {
   const [dark, setDark] = useState(false);
   const [query, setQuery] = useState("");
+  const [folder, setFolder] = useState<OutlookFolder>(defaultOutlookFolder);
+  const composePreview =
+    new URLSearchParams(location.search).get("outlookPreview") === "compose";
   useEffect(() => {
     document.documentElement.dataset.native = "true";
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
-  return (
+  return composePreview ? (
+    <>
+      <button
+        style={{ position: "fixed", right: 20, top: 14, zIndex: 10 }}
+        className="soft-button"
+        onClick={() => setDark(!dark)}
+      >
+        {dark ? "Light appearance" : "Dark appearance"}
+      </button>
+      <OutlookComposer
+        controls={
+          <div className="traffic">
+            <span className="red" />
+            <span className="yellow" />
+            <span className="green" />
+          </div>
+        }
+      />
+    </>
+  ) : (
     <div className="desktop">
       <section className="window main-window density-compact">
         <header className="window-bar">
@@ -98,8 +183,17 @@ export function ConnectedPreview() {
           </button>
         </header>
         <div className="app-body">
+          <aside className="sidebar">
+            <OutlookFolders selected={folder.id} onSelect={setFolder} />
+            <a href="/?outlookPreview=compose&outlookCompose=preview-draft">
+              Compose preview
+            </a>
+          </aside>
           <main className="main-content">
             <OutlookInbox
+              key={folder.id}
+              folder={folder}
+              canManage={true}
               account={{ email: "you@outlook.example", displayName: "Example" }}
               dark={dark}
               query={query}

@@ -30,14 +30,20 @@ async fn outlook_connect(
     window: WebviewWindow,
     client_id: String,
     enable_sending: Option<bool>,
+    enable_managing: Option<bool>,
 ) -> Result<outlook::Status, String> {
     main_window(&window)?;
     app.state::<outlook::OutlookService>()
-        .connect(client_id, enable_sending.unwrap_or(false), |url| {
-            app.opener()
-                .open_url(url, None::<&str>)
-                .map_err(|_| "Could not open your browser for Microsoft sign-in".into())
-        })
+        .connect(
+            client_id,
+            enable_sending.unwrap_or(false),
+            enable_managing.unwrap_or(false),
+            |url| {
+                app.opener()
+                    .open_url(url, None::<&str>)
+                    .map_err(|_| "Could not open your browser for Microsoft sign-in".into())
+            },
+        )
         .await
 }
 #[tauri::command]
@@ -67,10 +73,11 @@ async fn outlook_inbox(
     window: WebviewWindow,
     view: String,
     older: bool,
+    folder: Option<String>,
 ) -> Result<outlook::Inbox, String> {
     main_window(&window)?;
     app.state::<outlook::OutlookService>()
-        .inbox(view, older)
+        .inbox(view, older, folder.unwrap_or_else(|| "inbox".into()))
         .await
 }
 #[tauri::command]
@@ -253,6 +260,10 @@ fn main() {
             outlook_commands::outlook_load_draft,
             outlook_commands::outlook_save_draft,
             outlook_commands::outlook_send_draft,
+            outlook_commands::outlook_add_draft_files,
+            outlook_commands::outlook_remove_draft_file,
+            outlook_commands::outlook_folders,
+            outlook_commands::outlook_mark_read,
             outlook_commands::outlook_attachments,
             outlook_commands::outlook_load_images,
             outlook_commands::outlook_download_attachment,

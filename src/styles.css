@@ -2367,6 +2367,128 @@ html[data-native="true"] .compose-body {
 .real-composer .compose-fields {
   flex-shrink: 0;
 }
+.real-composer .compose-fields label {
+  gap: 12px;
+  padding: 4px 10px;
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-bottom-color: var(--line);
+  border-radius: 9px;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.real-composer .compose-fields label:focus-within {
+  background: var(--blue-soft);
+  border-color: color-mix(in srgb, var(--blue) 45%, transparent);
+}
+.real-composer .compose-fields label > span {
+  width: 44px;
+}
+.real-composer .compose-fields input {
+  padding: 8px 0;
+  font-size: 13px;
+  outline: none;
+  box-shadow: none;
+}
+.real-composer .compose-body {
+  outline: none;
+  box-shadow: none;
+  line-height: 1.65;
+}
+.real-composer .compose-body:focus-visible {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--blue) 50%, transparent);
+}
+.recipient-options {
+  display: flex;
+  gap: 4px;
+}
+.recipient-options button {
+  padding: 6px;
+  font-size: 11px;
+}
+.real-compose-files {
+  flex-shrink: 0;
+  max-height: 115px;
+  overflow: auto;
+  padding: 8px 25px;
+}
+.real-compose-files .attachment {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.real-compose-files .attachment > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.real-compose-files small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+.outlook-folders {
+  min-width: 0;
+}
+.sidebar {
+  min-height: 0;
+  overflow-y: auto;
+}
+.message-recipients {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.message-recipients p {
+  margin: 3px 0;
+}
+.message-recipients p > span {
+  display: inline-block;
+  min-width: 24px;
+}
+.folder-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 5px 10px;
+}
+.outlook-folder-row {
+  display: flex;
+  align-items: center;
+}
+.outlook-folder-row .nav-item {
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+}
+.folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.folder-expander {
+  flex: 0 0 18px;
+  width: 18px;
+  padding: 2px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.folder-expander.expanded svg {
+  transform: rotate(90deg);
+}
+.folder-hint {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 10px;
+  overflow-wrap: anywhere;
+}
 .real-composer .compose-footer {
   flex-shrink: 0;
 }
