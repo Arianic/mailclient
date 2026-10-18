@@ -1,5 +1,9 @@
 # Personal mail client — action plan
 
+## Progress — familiar-phrase search
+
+The local interpreter now combines full people names and alternatives/exclusions, message states, folders, subject/body/filename requests and richer English date ranges into visible filters. Quotes and explicit query syntax are preserved; search consumes no AI/Plus allowance. 120 frontend and 49 Rust tests plus frontend/Linux builds pass. See [supported phrases and boundaries](../docs/search.md) and [verification checkpoint](prototype-status.md).
+
 ## Progress — rich writing
 
 The composer now has rich text, account-specific signatures/defaults, reusable templates and snippets with local persistence, safe outgoing HTML and preserved send protection. See [writing guide](../docs/writing.md). This milestone does not add sending aliases, schedules, cloud AI, other providers or new permission scopes. Real-account checks are deferred by the user; continue with GNOME integration after this composer milestone.

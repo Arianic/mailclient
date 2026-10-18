@@ -38,9 +38,12 @@ from:alex invoice has:attachment
 (invoice OR receipt) -folder:junk
 person:alex@example.com after:2026-09-01 before:2026-10-01
 emails from alex about invoice last month
+unread emails from Alex Morgan or Sam Jones without attachments
+emails between September 1 and September 30
+messages file named invoice.pdf
 ```
 
-Search runs locally, with **no AI calls or Plus usage**. Common English phrases are interpreted into visible filters. Attachment filenames are indexed; text inside attached files and OCR are not. There is no 1,000-message search-result cap. Outlook's folder-item total can include non-email items, so it is not an exact email count.
+Search runs locally, with **no AI calls or Plus usage**. Familiar English requests combine full names, sender alternatives/exclusions, message state, folders, filenames and date ranges into visible filters. Quoted text and explicit filters stay literal. Attachment filenames are indexed; text inside attached files and OCR are not. There is no 1,000-message search-result cap. Outlook's folder-item total can include non-email items, so it is not an exact email count.
 
 [Search syntax, indexing coverage and cache controls →](docs/search.md)
 
@@ -108,7 +111,7 @@ npm run build
 
 For a browser-only design preview, run `npm run dev`. Normal browser views use synthetic sample mail and never send. The development-only `/?outlookPreview` reader and `/?outlookPreview=compose&outlookCompose=preview-draft` composer fixtures exercise the connected interface with synthetic data. These fixtures are excluded from production builds.
 
-The latest implementation checkpoint passed **55 frontend tests and 48 Rust tests**, plus the production frontend build, Linux executable build and isolated software-rendered WSLg startup. Checks cover search pagination and recovery, private-data boundaries, draft persistence, HTML handling, send-state protections and writing tools. See [native development checks](docs/linux-desktop.md) and [development checkpoints](outputs/prototype-status.md).
+The latest search checkpoint passed **120 frontend tests and 49 Rust tests**, plus the production frontend and Linux executable builds. Checks cover phrase interpretation, search pagination and recovery, private-data boundaries, draft persistence, HTML handling, send-state protections and writing tools. Both themes were checked with synthetic browser data; the preceding writing milestone also passed an isolated software-rendered WSLg startup. See [native development checks](docs/linux-desktop.md) and [development checkpoints](outputs/prototype-status.md).
 
 CachyOS/GNOME interaction checks and real-account round trips remain necessary for new features. Automated tests never send actual mail. WSLg startup and browser previews do not establish full GNOME compatibility.
 

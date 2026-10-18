@@ -1044,6 +1044,82 @@ mod tests {
         );
     }
     #[test]
+    fn familiar_phrase_filters_execute_with_grouped_people_and_inclusive_end_dates() {
+        let i = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
+        let make = |id: &str, name: &str, read: bool, attached: bool, received: &str| {
+            let mut m = mail(id, "Quarterly report", "Reservation number ABC123");
+            m["from"]["emailAddress"]["name"] = name.into();
+            m["from"]["emailAddress"]["address"] = format!("{id}@example.test").into();
+            m["isRead"] = read.into();
+            m["hasAttachments"] = attached.into();
+            m["receivedDateTime"] = received.into();
+            m
+        };
+        i.upsert(
+            "a",
+            "inbox",
+            &[
+                make("alex", "Alex Morgan", false, true, "2026-09-15T12:00:00Z"),
+                make("sam", "Sam Jones", false, true, "2026-09-30T12:00:00Z"),
+                make(
+                    "sam-no-file",
+                    "Sam Jones",
+                    false,
+                    false,
+                    "2026-09-15T12:00:00Z",
+                ),
+                make("read", "Alex Morgan", true, true, "2026-09-15T12:00:00Z"),
+                make("other", "Someone Else", false, true, "2026-09-15T12:00:00Z"),
+                make(
+                    "outside",
+                    "Alex Morgan",
+                    false,
+                    true,
+                    "2026-10-02T12:00:00Z",
+                ),
+            ],
+        )
+        .unwrap();
+        i.upsert(
+            "b",
+            "inbox",
+            &[make(
+                "private",
+                "Alex Morgan",
+                false,
+                true,
+                "2026-09-15T12:00:00Z",
+            )],
+        )
+        .unwrap();
+        let q = "is:unread (from:\"Alex Morgan\" OR from:\"Sam Jones\") after:2026-09-01 before:2026-10-01";
+        let results = i
+            .search("a", &format!("{q} has:attachment"), 0, "relevance")
+            .unwrap();
+        let ids = results
+            .messages
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids, std::collections::HashSet::from(["alex", "sam"]));
+        let results = i
+            .search("a", &format!("{q} -has:attachment"), 0, "relevance")
+            .unwrap();
+        assert_eq!(results.total, 1);
+        assert_eq!(results.messages[0].id, "sam-no-file");
+        let results = i
+            .search(
+                "a",
+                &format!(
+                    "{q} NOT (from:\"Alex Morgan\") subject:quarterly subject:report filename:pdf"
+                ),
+                0,
+                "relevance",
+            )
+            .unwrap();
+        assert_eq!(results.total, 2);
+    }
+    #[test]
     fn partial_delta_updates_preserve_bodies_and_old_folder_removals_do_not_delete_moves() {
         let i = MailIndex::init(Connection::open_in_memory().unwrap()).unwrap();
         i.upsert("a", "inbox", &[mail("1", "Invoice", "needle")])

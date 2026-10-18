@@ -48,8 +48,16 @@ export function SearchControls({
             <p>
               Fields: from, to, cc, bcc, person, subject, body, filename,
               folder, before, after, on, is:unread, is:read, is:important. Words
-              match prefixes; quotes match phrases. Common date phrases such as
-              last month also work.
+              match prefixes; quotes match phrases. Quote words to search them
+              literally instead of interpreting them as filters.
+            </p>
+            <p>
+              Try <code>unread emails from Alex Morgan last month</code>,{" "}
+              <code>emails from Alex or Sam without attachments</code>, or{" "}
+              <code>emails between September 1 and September 30</code>. You can
+              also use “last Friday”, “past two weeks”, “not from”, “in folder”,
+              “subject contains”, and “file named”. The interpreted filters
+              appear below.
             </p>
             <p>
               Search stays on this computer. Attachment names are indexed; text

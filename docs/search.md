@@ -16,7 +16,39 @@ Words combine with AND by default. Use uppercase `AND`, `OR`, `NOT`, parentheses
 
 Supported fields: `from:`, `to:`, `cc:`, `bcc:`, `person:`, `subject:`, `body:`, `filename:`, `folder:` (alias `in:`), `after:`, `before:`, `on:`, `is:unread`, `is:read`, `is:important`, `is:other`, `has:attachment`. `me` in a people field resolves to the connected account address. Folder filters match folder-name text, not an entire subtree or full path; duplicate names can match several folders. Dates use local calendar days in YYYY-MM-DD form; after is inclusive and before exclusive. Unknown fields and malformed dates/operators show an error rather than silently ignoring the filter. To search literal text containing a colon, use a supported field with a quoted value, e.g. `body:"https://example.com"`.
 
-Common English date phrases include today, yesterday, last week (the previous Monday-Sunday), last month (the previous calendar month), this month, last year, this year and last N days. Quote a phrase such as `"last month"` to search those literal words instead. No semantic embeddings, attachment-content extraction, OCR or cloud AI are connected.
+## Familiar English requests
+
+You can combine people, dates, message state, folders and attachments in one request. Leading “find”, “show me”, “search for”, or “look for” can introduce a request, with or without “emails/messages”. The client displays the resulting filters under **Searching:**; inspect them when a request is ambiguous. These rules run locally and do not contact AI or use Plus allowance.
+
+| Request | Meaning |
+| --- | --- |
+| `show me unread emails from Alex Morgan last month` | Unread, full sender name, previous calendar month |
+| `emails from Alex or Sam with attachments` | Either sender, with the attachment requirement applied to both |
+| `emails not from Alex about invoices` | Invoice keywords, excluding that sender |
+| `messages involving Alex Morgan without attachments` | Person in sender/To/Cc/Bcc, without attachments |
+| `emails I sent to Alex in Sent Items` | From the connected account, addressed to Alex, folder-name filter |
+| `emails subject contains quarterly report` | Both words in the subject; use quotes for an exact phrase |
+| `messages body contains "booking reference"` | Phrase in visible body text |
+| `emails file named invoice.pdf` | Attachment filename, not attached-file content |
+| `messages in folder "Travel 2025"` | Folder-name filter |
+| `emails between September 1 and September 30` | Both dates included, current year when omitted |
+| `emails since September 1 2025` | Inclusive start date |
+| `emails until October 12 2026` | Includes October 12 |
+| `emails older than 30 days` | Before the local date 30 days ago |
+
+People clauses accept `from`, `received from`, `sent by`, `to`, `sent to`, `cc`, `bcc`, and `involving` (any sender/recipient). Multiword names become phrases. A name ends at the next recognized clause, `about`, `containing`, or Boolean connector; quote names containing reserved words, such as `from "May Last"`. Separate keywords from a sender with `about`: `from Alex about invoices`. `me` resolves to the connected account's primary address; this does not infer other sending aliases. Lowercase `or` joins people alternatives into a group. Uppercase `OR` retains the explicit query grammar and precedence. `not`, `except` and `excluding` can negate a recognized clause.
+
+`unread emails`, `read emails`, `important emails` and `other emails` set message state/classification. `unread` and `important` also work as standalone qualifiers; `that are read/unread` and `marked as read/unread` work after another clause. Important/Other remains Outlook's classification. `with attachments`, `with an attachment`, `without attachments` and `with no attachments` set attachment presence. Subject/body requests apply each unquoted word to that field; a quoted value stays a phrase. `attachment named`, `file named`, and `filename contains` search filename tokens. Built-in folder shortcuts include `in inbox`, `in archive`, `in junk`, `in drafts`, `in Sent Items` and `in Deleted Items`; these use English folder-name matching. Use `in folder "Actual folder name"` for custom/localized folders.
+
+Dates use the computer's local calendar:
+
+- `today`, `yesterday`, `this week/month/year`, and `last week/month/year`. Weeks start Monday; “last month” is the whole previous calendar month. Current periods have an end boundary too.
+- `last Friday` is the most recent Friday strictly before today; `this Friday` is Friday in the current Monday-Sunday week, even if still ahead.
+- `last 14 days`, `past two weeks`, `previous 3 months`, and `past year`. Numbers one through ten or digits 1–999 are supported. Rolling day/week windows include today: “last 7 days” means today and the previous six local dates. Rolling month/year windows start at the corresponding date, clamped for shorter months, and end after today.
+- `on October 12, 2026`, `on 12th October 2026`, `on 2026-10-12`, `in September 2025`, and `during 2025`. Written month names/abbreviations avoid numeric day/month ambiguity. An omitted year means the current year.
+- `since`/`after` include the starting date; `before` excludes it. `until`/`through` include the named day or whole named month/year. `between DATE and DATE` includes both endpoints; repeat the month/year where needed. `older than N days/weeks/months/years` and `newer than N ...` use local date cutoffs, not exact elapsed hours.
+
+Quotes and explicit filters are preserved, including spaces inside quoted values: `subject:"last month"`, `from:today`, and `"unread"` stay literal. Malformed quotation marks remain available to the native parser's error handling. Unsupported phrasing, ambiguous slash dates and invalid natural-language dates remain search words rather than guessed dates. Bare `May report` and `invoice 2025` also remain keywords. This is a supported English grammar, not general language understanding: it does not infer synonyms, attachment contents, relative time of day, or arbitrary questions. No semantic embeddings, OCR or cloud AI are connected.
 
 ## Coverage, refresh and offline copies
 

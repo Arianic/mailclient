@@ -154,6 +154,43 @@ describe("personal Outlook reader", () => {
     );
     expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
   });
+  it("sends the visible natural-language interpretation to mailbox search", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 18, 12));
+    vi.mocked(outlookApi.search).mockResolvedValue({
+      messages: [],
+      hasMore: false,
+      total: 0,
+      snippets: {},
+      suggestions: [],
+      status: {
+        messages: 100,
+        folders: 3,
+        pending: 0,
+        missingFiles: 0,
+        lastSync: 1,
+        error: null,
+      },
+    });
+    await act(async () =>
+      root.render(
+        <OutlookInbox
+          account={account}
+          dark={false}
+          query="show me unread emails from Alex Morgan or Sam Jones last month without attachments"
+          compose={() => {}}
+        />,
+      ),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(350));
+    const expected =
+      'is:unread (from:"Alex Morgan" OR from:"Sam Jones") after:2026-09-01 before:2026-10-01 -has:attachment';
+    expect(outlookApi.search).toHaveBeenCalledWith(expected, 0, "relevance");
+    expect(host.querySelector(".search-interpretation code")?.textContent).toBe(
+      expected,
+    );
+    expect(outlookApi.inbox).not.toHaveBeenCalled();
+  });
   it("does not show a late result from an earlier search", async () => {
     vi.useFakeTimers();
     let finish!: (value: import("./outlook").SearchPage) => void;

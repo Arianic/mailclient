@@ -1,5 +1,11 @@
 # Mail development checkpoint — 18 October 2026
 
+## Expanded familiar-phrase search — 18 October 2026
+
+Local English interpretation now supports multiword people, grouped sender alternatives, sender/other-clause exclusions, combined read/importance qualifiers, sent-by-me, named folders, subject/body words or phrases, attachment presence/absence and filenames. Dates include rolling windows, weekdays, written month/day/year forms, inclusive between/until ranges, since/before and older/newer cutoffs. Current calendar periods are bounded; rolling day/week windows include today. Explicit filters and quoted whitespace stay intact, malformed quotes remain for native validation, and unsupported/invalid natural dates are not guessed. The visible interpreted query and Search tips explain the behavior. See [search guide](../docs/search.md).
+
+Verification: 120 frontend and 49 Rust tests pass, with native database checks for grouped people, attachment exclusions, inclusive end dates and account isolation; production frontend and Linux executable builds pass. Synthetic browser checks verify interpretation/help in light and dark appearances. Browser fixtures do not implement the complete search grammar; database tests verify actual filtering. No live mail is sent and no AI service, credentials, cache schema or permission scope changes. Real mailbox/laptop checks remain user-driven as previously deferred.
+
 ## Rich writing checkpoint — 18 October 2026
 
 New drafts use a local Tiptap editor with basic formatting, headings, lists, quotes, safe links, undo/redo and a plain-text alternative. A per-account writing library supports named formatted signatures, default selection, templates with subjects, creating templates from authored message text, snippets at the cursor, editing/deletion and optimistic revision conflicts. Template replacement requires confirmation for written bodies and preserves recipients/files/signature. Draft signature snapshots and separately stored reply quotes keep signature placement predictable; old plain drafts remain compatible.
