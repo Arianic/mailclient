@@ -25,6 +25,8 @@
   --pill: #e9ecf0;
   --shadow: 0 26px 75px #38485821, 0 3px 10px #3848580b;
   --field: #e9edf1;
+  --menu-surface: rgba(255, 255, 255, 0.96);
+  --menu-shadow: 0 12px 36px #27374724, 0 2px 8px #27374710;
   --row-height: 57px;
   background: var(--bg);
   color: var(--text);
@@ -49,6 +51,8 @@
   --pill: #303846;
   --shadow: 0 30px 90px #0005, 0 3px 12px #0002;
   --field: #1e2530;
+  --menu-surface: rgba(44, 50, 61, 0.97);
+  --menu-shadow: 0 12px 36px #0005, 0 2px 8px #0003;
 }
 * {
   box-sizing: border-box;
@@ -99,6 +103,78 @@ button {
 }
 select {
   cursor: pointer;
+}
+.select-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: inherit;
+  text-align: left;
+  line-height: 1.4;
+}
+.select-control:hover,
+.select-control[aria-expanded="true"] {
+  background: var(--hover);
+  border-color: color-mix(in srgb, var(--blue) 30%, var(--line));
+}
+.select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.select-popover {
+  position: fixed;
+  z-index: 200;
+  padding: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--panel));
+  border-radius: 12px;
+  box-shadow: var(--menu-shadow);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  scrollbar-width: thin;
+}
+@supports (backdrop-filter: blur(20px)) {
+  .select-popover {
+    background: var(--menu-surface);
+    backdrop-filter: blur(20px) saturate(125%);
+  }
+}
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+.select-option > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.select-option > svg {
+  flex-shrink: 0;
+  color: var(--blue);
+}
+.select-option.is-active {
+  background: var(--blue-soft);
 }
 a {
   color: var(--blue);
@@ -372,16 +448,10 @@ h2 {
   position: relative;
   font-size: 11px;
 }
-.account-picker select {
-  appearance: none;
+.account-picker .select-control {
   border: 0;
-  padding: 3px 20px 3px 8px;
-  outline: none;
-}
-.account-picker svg {
-  position: absolute;
-  right: 4px;
-  pointer-events: none;
+  padding: 5px 8px;
+  background: transparent;
 }
 .mail-panel,
 .calendar-panel {
@@ -628,10 +698,8 @@ h2 {
   font-size: 11px;
   flex-wrap: wrap;
 }
-.filter-bar select {
-  border: 1px solid var(--line);
-  padding: 5px;
-  border-radius: 5px;
+.filter-bar .select-control {
+  padding: 5px 9px;
 }
 .menu-anchor {
   position: relative;
@@ -797,11 +865,9 @@ h2 {
   color: var(--muted);
   font-size: 10px;
 }
-.conversation-meta select {
+.conversation-meta .select-control {
   font-size: 10px;
-  border: 1px solid var(--line);
-  padding: 5px;
-  border-radius: 6px;
+  padding: 5px 9px;
 }
 .conversation-meta .icon-button {
   margin-left: auto;
@@ -1067,12 +1133,10 @@ h2 {
   margin-top: 6px;
   line-height: 1.6;
 }
-.setting-row select {
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+.setting-row .select-control {
   font-size: 10px;
-  max-width: 115px;
+  min-width: 116px;
+  flex-shrink: 0;
 }
 .setting-row svg {
   color: var(--muted);
@@ -1133,13 +1197,12 @@ h2 {
   flex-shrink: 0;
 }
 .compose-fields input,
-.compose-fields select {
+.compose-fields .select-control {
   border: 0;
   flex: 1;
   min-width: 0;
   font-size: 12px;
   padding: 3px;
-  outline: none;
 }
 .compose-body {
   display: block;
@@ -1161,10 +1224,11 @@ h2 {
   padding: 7px 22px;
   border-top: 1px solid var(--line);
 }
-.format-bar select {
+.format-bar .select-control {
   border: 0;
+  background: transparent;
   font-size: 10px;
-  max-width: 130px;
+  max-width: 170px;
 }
 .compose-footer {
   padding: 14px 25px;
@@ -1255,7 +1319,7 @@ h2 {
   margin-bottom: 15px;
 }
 .event-dialog input,
-.event-dialog select,
+.event-dialog .select-control,
 .event-dialog textarea {
   display: block;
   width: 100%;
@@ -1266,6 +1330,9 @@ h2 {
   border-radius: 7px;
   font-size: 12px;
   min-width: 0;
+}
+.event-dialog .select-control {
+  display: flex;
 }
 .event-dialog textarea {
   resize: vertical;

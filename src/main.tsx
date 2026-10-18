@@ -7,7 +7,6 @@ import {
   ArrowUpRight,
   CalendarDays,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -49,6 +48,7 @@ import {
 } from "./data";
 import "./styles.css";
 import { SafeMessage } from "./SafeMessage";
+import { ThemedSelect } from "./ThemedSelect";
 import {
   dragNativeWindow,
   nativeDesktop,
@@ -290,16 +290,17 @@ function Composer({
         <div className="compose-fields">
           <label>
             <span>From</span>
-            <select
+            <ThemedSelect
+              aria-label="From account"
               value={draft.account}
-              onChange={(e) => update("account", e.target.value)}
+              onValueChange={(value) => update("account", value)}
             >
               {Object.entries(accounts).map(([key, a]) => (
                 <option key={key} value={key}>
                   {a.label} · {a.email}
                 </option>
               ))}
-            </select>
+            </ThemedSelect>
           </label>
           <label>
             <span>To</span>
@@ -384,16 +385,13 @@ function Composer({
             <Link2 size={16} />
           </IconButton>
           <span className="divider" />
-          <select
+          <ThemedSelect
             aria-label="Insert template"
             value={format}
-            onChange={(e) => {
-              setFormat(e.target.value);
-              if (e.target.value)
-                update(
-                  "body",
-                  draft.body + (draft.body ? "\n\n" : "") + e.target.value,
-                );
+            onValueChange={(value) => {
+              setFormat(value);
+              if (value)
+                update("body", draft.body + (draft.body ? "\n\n" : "") + value);
             }}
           >
             <option value="">Templates</option>
@@ -403,7 +401,7 @@ function Composer({
             <option value="Just following up on my previous message. Let me know when you have a moment.">
               Gentle follow-up
             </option>
-          </select>
+          </ThemedSelect>
           <span className="grow" />
           <span className="subtle">Plain text preview</span>
         </div>
@@ -843,10 +841,10 @@ function App() {
                   <div className="heading-right">
                     <span className="date-label">Saturday, October 17</span>
                     <div className="account-picker">
-                      <select
+                      <ThemedSelect
                         aria-label="Filter by account"
                         value={account}
-                        onChange={(e) => setAccount(e.target.value)}
+                        onValueChange={setAccount}
                       >
                         <option value="all">All accounts</option>
                         {Object.entries(accounts).map(([id, a]) => (
@@ -854,8 +852,7 @@ function App() {
                             {a.label}
                           </option>
                         ))}
-                      </select>
-                      <ChevronDown size={12} />
+                      </ThemedSelect>
                     </div>
                   </div>
                 </div>
@@ -945,10 +942,10 @@ function App() {
                   {filters && (
                     <div className="filter-bar">
                       <span>Search within</span>
-                      <select
+                      <ThemedSelect
                         aria-label="Account search filter"
                         value={account}
-                        onChange={(e) => setAccount(e.target.value)}
+                        onValueChange={setAccount}
                       >
                         <option value="all">All accounts</option>
                         {Object.entries(accounts).map(([id, a]) => (
@@ -956,7 +953,7 @@ function App() {
                             {a.label}
                           </option>
                         ))}
-                      </select>
+                      </ThemedSelect>
                       <span className="subtle">
                         Sender, subject & message text
                       </span>
@@ -1206,12 +1203,12 @@ function App() {
                         {current.messages.length}{" "}
                         {current.messages.length === 1 ? "message" : "messages"}
                       </span>
-                      <select
+                      <ThemedSelect
                         aria-label="Conversation action category"
                         value={current.category}
-                        onChange={(e) =>
+                        onValueChange={(value) =>
                           patch(current.id, {
-                            category: e.target.value as Category,
+                            category: value as Category,
                           })
                         }
                       >
@@ -1219,7 +1216,7 @@ function App() {
                         <option>Needs reply</option>
                         <option>Waiting</option>
                         <option>Reference</option>
-                      </select>
+                      </ThemedSelect>
                       <IconButton
                         label={
                           current.starred
@@ -1527,27 +1524,29 @@ function App() {
                         Theme
                         <small>System follows your desktop preference</small>
                       </span>
-                      <select
+                      <ThemedSelect
+                        aria-label="Theme"
                         value={theme}
-                        onChange={(e) => setTheme(e.target.value as Theme)}
+                        onValueChange={(value) => setTheme(value as Theme)}
                       >
                         <option value="system">System</option>
                         <option value="light">Light</option>
                         <option value="dark">Dark</option>
-                      </select>
+                      </ThemedSelect>
                     </label>
                     <label className="setting-row">
                       <span>
                         Inbox density<small>Keep the framing spacious</small>
                       </span>
-                      <select
+                      <ThemedSelect
+                        aria-label="Inbox density"
                         value={density}
-                        onChange={(e) => setDensity(e.target.value)}
+                        onValueChange={setDensity}
                       >
                         <option value="compact">Compact</option>
                         <option value="comfortable">Comfortable</option>
                         <option value="spacious">Spacious</option>
-                      </select>
+                      </ThemedSelect>
                     </label>
                     <div className="setting-row">
                       <span>
@@ -1791,18 +1790,19 @@ function App() {
             </div>
             <label>
               Calendar
-              <select
+              <ThemedSelect
+                aria-label="Calendar"
                 value={eventEdit.calendar}
-                onChange={(e) =>
+                onValueChange={(value) =>
                   setEventEdit({
                     ...eventEdit,
-                    calendar: e.target.value as CalendarEvent["calendar"],
+                    calendar: value as CalendarEvent["calendar"],
                   })
                 }
               >
                 <option>Personal</option>
                 <option>Work</option>
-              </select>
+              </ThemedSelect>
             </label>
             <label>
               Notes

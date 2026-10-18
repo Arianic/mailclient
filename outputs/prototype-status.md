@@ -1,5 +1,7 @@
 # Mail development checkpoint — 18 October 2026
 
+Dropdown appearance update: replaced all eight native select controls with an app-owned, theme-aware popup. Account filters, action categories, appearance settings, sender identity, templates and the calendar picker now share rounded surfaces, a selected checkmark and a blue highlight. Keyboard arrows, Home/End, typing to find a choice, Enter/Space, Escape and Tab are supported. Popups are positioned within the viewport and close on outside interaction, scrolling or resizing. Five new interaction tests pass, bringing the frontend suite to 16. The production build and light/dark browser appearance checks pass; account filtering and calendar selection were also verified in the browser. The user reported that the initial app runs and looks good on CachyOS; these updated dropdowns still need a laptop check.
+
 The initial Linux shell now builds and loads both its bundled application document and native SQLite workspace during a software-rendered WSLg startup check. This does not yet validate native GNOME interactions or appearance.
 
 Implemented since the first prototype:
