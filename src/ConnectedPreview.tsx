@@ -103,10 +103,17 @@ outlookApi.message = async (id) => ({
 });
 outlookApi.attachments = async () => [
   {
-    id: "fixture-file",
-    name: "picture.png",
+    id: "inline-logo",
+    name: "email-logo.png",
     size: 256,
     contentType: "image/png",
+    isInline: true,
+  },
+  {
+    id: "fixture-file",
+    name: "report.pdf",
+    size: 256,
+    contentType: "application/pdf",
     isInline: false,
   },
 ];

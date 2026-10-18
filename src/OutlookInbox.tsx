@@ -309,9 +309,12 @@ export function OutlookInbox({
                             const next = await outlookApi.attachments(
                               selected.id,
                             );
+                            const attachments = next.filter(
+                              (file) => !file.isInline,
+                            );
                             if (selectedId.current === selected.id)
-                              setFiles(next);
-                            return next.length
+                              setFiles(attachments);
+                            return attachments.length
                               ? "Choose a file to download."
                               : "No file attachments.";
                           })
@@ -349,33 +352,6 @@ export function OutlookInbox({
                         <span className="subtle">
                           {Math.max(1, Math.round(file.size / 1024))} KB
                         </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {images && images.images.length > 0 && (
-                  <div className="attachment-downloads">
-                    {images.images.map((image, index) => (
-                      <button
-                        className="text-button"
-                        key={index}
-                        disabled={mediaBusy}
-                        onClick={() =>
-                          void media(async () =>
-                            (await outlookApi.downloadImage(selected.id, index))
-                              ? "Image saved."
-                              : "Download canceled.",
-                          )
-                        }
-                      >
-                        <Download size={12} />
-                        <img
-                          src={image.dataUrl}
-                          alt=""
-                          width={22}
-                          height={22}
-                        />
-                        Image {index + 1}
                       </button>
                     ))}
                   </div>

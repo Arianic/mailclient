@@ -60,7 +60,7 @@ Microsoft labels this permission as read/write mail access. The current client u
 
 ## 4. Images, downloads and reading
 
-Remote images remain blocked initially. **Load images** grants permission for that message only; remote image requests can reveal your IP and that the message was opened. Inline CID images are also supported. After loading, use the image thumbnail/download buttons to save a PNG. **Attachments** lists files for manual download; clicking a filename opens the native save dialog.
+Remote images remain blocked initially. **Load images** grants permission for that message only; remote image requests can reveal your IP and that the message was opened. Inline CID images are also supported. Loaded images appear only in the email body, with no duplicate image-download strip. **Attachments** excludes inline resources such as logos and signatures; separate files, including intentionally attached photos, remain downloadable. Clicking a filename opens the native save dialog.
 
 The broker accepts HTTPS/public IPv4 image hosts only, pins DNS results, sends no mail tokens/cookies/referrer, follows no redirects and re-encodes supported raster formats. IPv6-only hosts, private addresses, HTTP sources, redirects, unsupported formats and oversized images remain blocked. Up to 24 sources are attempted; downloaded images are limited to 3 MB encoded and 4096 pixels per side, with a smaller re-encoded display limit and total budget. File attachment downloads support up to 10 MB and list up to 100 attachments. Some senders' images may therefore remain unavailable. Links in email content remain inactive. The email frame still has no scripts, same-origin permission or privileged app bridge; it grows with available reading width and height.
 
@@ -69,7 +69,7 @@ The broker accepts HTTPS/public IPv4 image hosts only, pins DNS results, sends n
 - Relaunch: the real inbox should open directly, with no placeholder mailboxes.
 - Switch Important/Other; use Load older messages, then open/back and check scroll position.
 - Resize the main window and check the reading surface grows in both directions.
-- Load images deliberately, save one, and download an attachment to a location you choose.
+- Load images deliberately: they should appear only inside the email, with no duplicate download buttons. Download a separate attachment to a location you choose; inline logos should not appear in that list.
 - Compose a test to yourself, close/reopen its saved draft, then test Undo Send. When ready, send one test and verify Sent Items/receipt yourself.
 - Attach a small file, close/reopen its draft, remove/re-add it, and verify the received attachment contents after a deliberate test send.
 - Enable read-status sync, open an unread message, go back and verify its dot clears; confirm the same state in Outlook web.

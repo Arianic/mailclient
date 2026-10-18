@@ -6,7 +6,14 @@ import { htmlText, OutlookInbox } from "./OutlookInbox";
 import { outlookApi, type OutlookMessage } from "./outlook";
 
 vi.mock("./outlook", () => ({
-  outlookApi: { inbox: vi.fn(), message: vi.fn(), markRead: vi.fn() },
+  outlookApi: {
+    inbox: vi.fn(),
+    message: vi.fn(),
+    markRead: vi.fn(),
+    images: vi.fn(),
+    attachments: vi.fn(),
+    downloadAttachment: vi.fn(),
+  },
 }));
 let host: HTMLDivElement;
 let root: Root;
@@ -154,6 +161,71 @@ describe("personal Outlook reader", () => {
     expect(text).toContain("Hello & welcome\nSecond line");
     expect(text).not.toContain("danger()");
     expect(text).not.toContain("https:");
+  });
+  it("keeps loaded images in the email and lists only separate file attachments", async () => {
+    const image =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+    vi.mocked(outlookApi.message).mockResolvedValueOnce({
+      id: summary.id,
+      body: {
+        contentType: "html",
+        content: '<p>Hello</p><img src="cid:logo" alt="Company logo">',
+      },
+    });
+    vi.mocked(outlookApi.images).mockResolvedValueOnce({
+      images: [{ source: "cid:logo", dataUrl: image }],
+      blocked: 0,
+    });
+    vi.mocked(outlookApi.attachments).mockResolvedValueOnce([
+      {
+        id: "logo",
+        name: "logo.png",
+        size: 90,
+        contentType: "image/png",
+        isInline: true,
+      },
+      {
+        id: "document",
+        name: "report.pdf",
+        size: 500,
+        contentType: "application/pdf",
+        isInline: false,
+      },
+      {
+        id: "photo",
+        name: "holiday.jpg",
+        size: 700,
+        contentType: "image/jpeg",
+        isInline: false,
+      },
+    ]);
+    await render();
+    await click(host.querySelector<HTMLButtonElement>(".row-main")!);
+    await click(
+      Array.from(host.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("Load images"),
+      )!,
+    );
+    expect(host.querySelector("iframe")!.srcdoc).toContain(image);
+    expect(host.querySelectorAll(".attachment-downloads")).toHaveLength(0);
+    await click(
+      Array.from(host.querySelectorAll("button")).find(
+        (button) => button.textContent === "Attachments",
+      )!,
+    );
+    const files = host.querySelector(".attachment-downloads")!;
+    expect(files.textContent).toContain("report.pdf");
+    expect(files.textContent).toContain("holiday.jpg");
+    expect(files.textContent).not.toContain("logo.png");
+    expect(host.querySelectorAll(".attachment-downloads button")).toHaveLength(
+      2,
+    );
+    vi.mocked(outlookApi.downloadAttachment).mockResolvedValueOnce(true);
+    await click(files.querySelector<HTMLButtonElement>("button")!);
+    expect(outlookApi.downloadAttachment).toHaveBeenCalledExactlyOnceWith(
+      summary.id,
+      "document",
+    );
   });
   it("marks a successfully opened message as read on the server and in the list", async () => {
     vi.mocked(outlookApi.message).mockResolvedValue({
