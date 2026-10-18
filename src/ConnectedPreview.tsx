@@ -22,6 +22,7 @@ let previewDraft: OutlookDraft = {
   bcc: "",
   subject: "",
   body: "",
+  bodyHtml: "<p></p>",
   replyId: null,
   state: "draft",
   attachments: [],
@@ -32,6 +33,40 @@ outlookApi.status = async () => ({
   canSend: true,
   canManage: true,
 });
+let previewLibrary: import("./outlook").WritingLibrary = {
+  revision: 0,
+  defaultSignature: null,
+  entries: [
+    {
+      id: "preview-signature",
+      kind: "signature",
+      name: "Personal",
+      body: "Alex Morgan\nSent from Mail",
+      bodyHtml: "<p><strong>Alex Morgan</strong><br>Sent from Mail</p>",
+    },
+    {
+      id: "preview-template",
+      kind: "template",
+      name: "Meeting follow-up",
+      subject: "Following up on our conversation",
+      body: "Thank you for your time.\nHere are the next steps:",
+      bodyHtml:
+        "<p>Thank you for your time.</p><p>Here are the <strong>next steps</strong>:</p><ul><li><p>Confirm a date</p></li></ul>",
+    },
+    {
+      id: "preview-snippet",
+      kind: "snippet",
+      name: "Thank you",
+      body: "Thanks for your help — I appreciate it.",
+      bodyHtml: "<p>Thanks for your help — I appreciate it.</p>",
+    },
+  ],
+};
+outlookApi.writingLibrary = async () => previewLibrary;
+outlookApi.saveWritingLibrary = async (_id, library) => {
+  previewLibrary = { ...library, revision: library.revision + 1 };
+  return previewLibrary;
+};
 outlookApi.loadDraft = async () => previewDraft;
 outlookApi.saveDraft = async (draft) => {
   previewDraft = { ...draft };

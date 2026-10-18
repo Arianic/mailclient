@@ -1,5 +1,9 @@
 # Personal mail client — action plan
 
+## Progress — rich writing
+
+The composer now has rich text, account-specific signatures/defaults, reusable templates and snippets with local persistence, safe outgoing HTML and preserved send protection. See [writing guide](../docs/writing.md). This milestone does not add sending aliases, schedules, cloud AI, other providers or new permission scopes. Real-account checks are deferred by the user; continue with GNOME integration after this composer milestone.
+
 ## Progress — search and daily Outlook UX
 
 The authorized UX/search milestone is implemented: local FTS whole-mailbox search, deterministic common phrase interpretation, filters/ranking/snippets/spelling hints and visible indexing coverage; per-folder delta caching/offline bodies; periodic refresh; everyday single/bulk mail actions and guarded session Undo; navigation snapshots; indexed conversation history; Reply all/Forward; recipient chips/local autocomplete; discard; native attachment drop and larger uploads. See [search behavior and limits](../docs/search.md) and [UX checkpoint](ux-review.md). This connects only the existing personal Outlook account, consumes no AI allowance and does not complete the broader multi-provider/calendar/AI milestones below. Native round trips require laptop checks.

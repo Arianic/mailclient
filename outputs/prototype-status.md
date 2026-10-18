@@ -1,5 +1,13 @@
 # Mail development checkpoint — 18 October 2026
 
+## Rich writing checkpoint — 18 October 2026
+
+New drafts use a local Tiptap editor with basic formatting, headings, lists, quotes, safe links, undo/redo and a plain-text alternative. A per-account writing library supports named formatted signatures, default selection, templates with subjects, creating templates from authored message text, snippets at the cursor, editing/deletion and optimistic revision conflicts. Template replacement requires confirmation for written bodies and preserves recipients/files/signature. Draft signature snapshots and separately stored reply quotes keep signature placement predictable; old plain drafts remain compatible.
+
+Draft schema 4 adds the writing-library table. Drafts persist normalized body HTML, a plain-text equivalent, selected signature and quotes. Both normal and larger attachment sends use the same Rust body builder. Frontend and backend allowlists independently reject active content/resources and unsafe links; no received-mail isolation or AI permission changed. The composer/editor is loaded in a separate production chunk.
+
+Verification: 55 frontend and 48 Rust tests pass, including legacy drafts, default signature snapshots, guarded template replacement, cursor insertion/undo, send locking, HTML isolation, account scoping and conflicting library revisions. Frontend and Linux executable builds pass. A clean software-rendered WSLg startup reaches both application-document and workspace-loaded markers. Browser fixtures verify both themes, formatted template/signature use and creating a snippet; fixtures remain excluded from production output. Real-account formatted delivery/native paste checks are deferred at the user's request.
+
 ## Mailbox indexing correction — 18 October 2026
 
 The user reported approximately 300 messages indexed while Settings claimed completion for a mailbox with thousands. The initial history scan now uses ordinary folder-message pagination independently of delta change tracking, requests page size through Prefer, and follows empty intermediate pages. Index schema version 2 preserves cached mail and pause preferences while scheduling a fresh scan. Pending change pages and per-folder count gaps no longer present successful completion. Outlook item counts are shown separately because they may include non-email items. Rescan entire mailbox provides non-destructive recovery without reconnecting or clearing drafts.

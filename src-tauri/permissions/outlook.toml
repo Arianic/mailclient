@@ -6,4 +6,4 @@ commands.allow = ["outlook_status", "outlook_connect", "outlook_cancel", "outloo
 [[permission]]
 identifier = "allow-outlook-compose"
 description = "Dedicated Outlook compose windows may edit their own local draft and submit it after a user Send action."
-commands.allow = ["load_workspace", "outlook_status", "outlook_load_draft", "outlook_save_draft", "outlook_send_draft", "outlook_add_draft_files", "outlook_remove_draft_file", "outlook_contacts", "outlook_discard_draft"]
+commands.allow = ["load_workspace", "outlook_status", "outlook_load_draft", "outlook_save_draft", "outlook_send_draft", "outlook_add_draft_files", "outlook_remove_draft_file", "outlook_contacts", "outlook_discard_draft", "outlook_writing_library", "outlook_save_writing_library"]

@@ -51,7 +51,11 @@ import { SafeMessage } from "./SafeMessage";
 import { ThemedSelect } from "./ThemedSelect";
 import { useOutlook, outlookApi } from "./outlook";
 import { OutlookFolders, defaultOutlookFolder } from "./OutlookFolders";
-import { OutlookComposer } from "./OutlookComposer";
+const OutlookComposer = React.lazy(() =>
+  import("./OutlookComposer").then((module) => ({
+    default: module.OutlookComposer,
+  })),
+);
 import { OutlookDrafts } from "./OutlookDrafts";
 import { OutlookSettings } from "./OutlookSettings";
 import { OutlookInbox } from "./OutlookInbox";
@@ -2030,7 +2034,17 @@ function Empty({
 const root = createRoot(document.getElementById("root")!);
 function RealComposer() {
   useTheme();
-  return <OutlookComposer controls={<TrafficLights />} />;
+  return (
+    <React.Suspense
+      fallback={
+        <div role="status" className="startup-error">
+          Opening composer…
+        </div>
+      }
+    >
+      <OutlookComposer controls={<TrafficLights />} />
+    </React.Suspense>
+  );
 }
 void storage
   .initialize()

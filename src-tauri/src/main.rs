@@ -341,6 +341,8 @@ fn main() {
             outlook_commands::outlook_drafts,
             outlook_commands::outlook_load_draft,
             outlook_commands::outlook_save_draft,
+            outlook_commands::outlook_writing_library,
+            outlook_commands::outlook_save_writing_library,
             outlook_commands::outlook_send_draft,
             outlook_commands::outlook_add_draft_files,
             outlook_commands::outlook_remove_draft_file,

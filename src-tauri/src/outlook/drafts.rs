@@ -11,7 +11,7 @@ pub struct DraftAttachment {
     pub size: usize,
 }
 
-pub struct DraftStore(Mutex<Connection>);
+pub struct DraftStore(pub(super) Mutex<Connection>);
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
@@ -22,6 +22,14 @@ pub struct Draft {
     pub bcc: String,
     pub subject: String,
     pub body: String,
+    #[serde(default)]
+    pub body_html: Option<String>,
+    #[serde(default)]
+    pub signature: Option<super::writing::WritingItem>,
+    #[serde(default)]
+    pub quote: Option<String>,
+    #[serde(default)]
+    pub writing_initialized: bool,
     pub reply_id: Option<String>,
     pub state: String,
     #[serde(default)]
@@ -114,17 +122,17 @@ impl DraftStore {
         let connection = Connection::open(path).map_err(|_| "Could not open mail drafts")?;
         Self::initialize(connection)
     }
-    fn initialize(connection: Connection) -> Result<Self, String> {
+    pub(super) fn initialize(connection: Connection) -> Result<Self, String> {
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|_| "Could not configure draft storage")?;
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(|_| "Could not read draft storage version")?;
-        if version > 3 {
+        if version > 4 {
             return Err("Mail drafts require a newer app version".into());
         }
-        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN; CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, account TEXT NOT NULL, value TEXT NOT NULL, state TEXT NOT NULL, updated INTEGER NOT NULL DEFAULT(unixepoch())); CREATE TABLE IF NOT EXISTS draft_attachments (id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL); UPDATE drafts SET state='uncertain' WHERE state='sending'; CREATE TABLE IF NOT EXISTS draft_remotes(id TEXT PRIMARY KEY,remote_id TEXT NOT NULL); UPDATE drafts SET state='draft' WHERE state='preparing'; PRAGMA user_version=3; COMMIT;").map_err(|_| "Could not initialize draft storage")?;
+        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN; CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, account TEXT NOT NULL, value TEXT NOT NULL, state TEXT NOT NULL, updated INTEGER NOT NULL DEFAULT(unixepoch())); CREATE TABLE IF NOT EXISTS draft_attachments (id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL); UPDATE drafts SET state='uncertain' WHERE state='sending'; CREATE TABLE IF NOT EXISTS draft_remotes(id TEXT PRIMARY KEY,remote_id TEXT NOT NULL); UPDATE drafts SET state='draft' WHERE state='preparing'; CREATE TABLE IF NOT EXISTS writing_library(account TEXT PRIMARY KEY,value TEXT NOT NULL,revision INTEGER NOT NULL); PRAGMA user_version=4; COMMIT;").map_err(|_| "Could not initialize draft storage")?;
         Ok(Self(Mutex::new(connection)))
     }
     pub fn create(&self, draft: &Draft) -> Result<(), String> {
@@ -285,7 +293,7 @@ impl DraftStore {
 }
 fn draft_json(draft: &Draft) -> Result<String, String> {
     // Attachment metadata from a webview is never authoritative or persisted.
-    let mut saved = draft.clone();
+    let mut saved = super::writing::normalized_draft(draft)?;
     saved.attachments.clear();
     serde_json::to_string(&saved).map_err(|_| "Could not save draft".into())
 }
@@ -321,6 +329,11 @@ fn attachment_metadata(connection: &Connection, id: &str) -> Result<Vec<DraftAtt
 fn validate(draft: &Draft) -> Result<(), String> {
     if !crate::valid_draft_id(&draft.id)
         || draft.body.len() > 1_000_000
+        || draft
+            .body_html
+            .as_ref()
+            .is_some_and(|h| h.len() > 1_000_000)
+        || draft.quote.as_ref().is_some_and(|q| q.len() > 1_000_000)
         || draft.subject.len() > 998
         || draft.to.len() + draft.cc.len() + draft.bcc.len() > 20_000
     {
@@ -359,7 +372,7 @@ fn prepare(draft: &Draft) -> Result<(String, serde_json::Value), String> {
             "Add at least one To recipient, with no more than 100 recipients total.".into(),
         );
     }
-    let message = serde_json::json!({"subject":draft.subject,"body":{"contentType":"Text","content":draft.body},"toRecipients":to,"ccRecipients":cc,"bccRecipients":bcc});
+    let message = serde_json::json!({"subject":draft.subject,"body":super::writing::message_body(draft)?,"toRecipients":to,"ccRecipients":cc,"bccRecipients":bcc});
     let (url, payload) = if let Some(reply_id) = &draft.reply_id {
         let mut url = reqwest::Url::parse(&format!("{}/me/messages/", super::GRAPH)).unwrap();
         url.path_segments_mut()
@@ -441,6 +454,10 @@ impl super::OutlookService {
             bcc: String::new(),
             subject: String::new(),
             body: String::new(),
+            body_html: Some("<p></p>".into()),
+            signature: None,
+            quote: None,
+            writing_initialized: false,
             reply_id: reply_id.clone(),
             state: "draft".into(),
             attachments: Vec::new(),
@@ -605,6 +622,10 @@ mod tests {
             bcc: "".into(),
             subject: "Hello".into(),
             body: "Text".into(),
+            body_html: None,
+            signature: None,
+            quote: None,
+            writing_initialized: false,
             reply_id: None,
             state: "draft".into(),
             attachments: Vec::new(),

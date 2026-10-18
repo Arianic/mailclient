@@ -9,7 +9,7 @@ Review of the current connected Outlook client and light/dark development fixtur
 - Session folder/search snapshots preserve loaded pages, filters, selection and scroll; expanded folders persist and previous/next navigation is available.
 - Incremental local Outlook index, offline bodies, periodic/reconnect refresh and whole-mailbox search. Ranked snippets, phrases, Boolean operators, people/date/folder/read/attachment filters, deterministic common English phrases, typo suggestions, pagination and coverage. See [search guide](../docs/search.md). Indexing is all-history in this version; configurable cache retention remains pending.
 - Indexed conversation history expanded with separators; Reply all, Forward with quoted text and supported original files, Sent rows show recipients.
-- Recipient chips, validation, local contact autocomplete, draft discard, native file drop/picker, up to 20 MB/20 files with upload progress and Done after submission. Rich text, signatures, templates, provider draft editing and schedules remain pending.
+- Recipient chips, validation, local contact autocomplete, draft discard, native file drop/picker, up to 20 MB/20 files with upload progress and Done after submission. Rich text, selectable account signatures, templates and snippets are now implemented; see [writing tools](../docs/writing.md). Provider draft editing and schedules remain pending.
 
 No real-mail mutations or sends are performed by automated tests. New native provider interactions and GNOME drop/scaling behavior still require laptop validation. Cache and draft databases are separate from prototype state and settings exports, but not encrypted at rest; credentials remain in Keyring.
 

@@ -6,6 +6,7 @@ pub mod folders;
 pub mod index;
 pub mod media;
 mod vault;
+pub mod writing;
 
 use oauth2::{
     basic::{BasicClient, BasicTokenResponse},

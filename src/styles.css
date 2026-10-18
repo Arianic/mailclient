@@ -2948,3 +2948,312 @@ mark {
 .message-media-controls:empty {
   display: none;
 }
+
+/* Rich writing stays within the same quiet, theme-aware compose surface. */
+.compose-writing-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 25px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.compose-writing-tools .select-control {
+  min-width: 112px;
+  font-size: 11px;
+}
+.compose-writing {
+  flex: 1;
+  min-height: 160px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.compose-writing > .compose-body {
+  width: 100%;
+}
+.rich-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+  flex: 1;
+}
+.rich-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 7px 22px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.rich-toolbar .select-control {
+  min-width: 115px;
+  margin-right: 8px;
+  font-size: 11px;
+}
+.rich-toolbar .icon-button {
+  width: 29px;
+  height: 29px;
+}
+.rich-toolbar .icon-button[aria-pressed="true"] {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+.rich-editor > div:last-child:has(.tiptap) {
+  flex: 1;
+  display: flex;
+}
+.rich-editor .tiptap {
+  flex: 1;
+  outline: none;
+  min-height: 140px;
+  padding: 20px 28px;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.rich-editor .tiptap p {
+  margin: 0 0 0.65em;
+}
+.rich-editor .tiptap p:only-child {
+  margin-bottom: 0;
+}
+.rich-editor
+  .tiptap:has(> p:only-child > br.ProseMirror-trailingBreak)::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  color: var(--muted);
+  pointer-events: none;
+}
+.rich-editor .tiptap ul,
+.rich-editor .tiptap ol {
+  padding-left: 24px;
+}
+.rich-editor .tiptap blockquote,
+.compose-quote {
+  border-left: 2px solid var(--line);
+  padding-left: 14px;
+  color: var(--muted);
+}
+.rich-editor a,
+.message-signature a {
+  color: var(--blue);
+  text-decoration: underline;
+}
+.rich-editor .tiptap[contenteditable="false"] {
+  cursor: default;
+}
+.message-signature {
+  margin: 0 28px 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+.signature-caption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+.message-signature p {
+  margin: 0 0 8px;
+}
+.plain-signature {
+  white-space: pre-wrap;
+}
+.compose-quote {
+  margin: 0 28px 20px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.compose-quote summary {
+  cursor: pointer;
+}
+.compose-quote pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.65;
+}
+.writing-link-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 25px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+.writing-link-panel label {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.writing-link-panel input {
+  flex: 1;
+  min-width: 100px;
+}
+.writing-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgb(0 0 0 / 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.writing-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.22);
+  padding: 22px;
+}
+.writing-dialog-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.writing-dialog-heading h2 {
+  flex: 1;
+  font-size: 17px;
+  margin: 0;
+}
+.writing-library-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 18px 0 12px;
+}
+.writing-library-search {
+  width: 100%;
+  margin-bottom: 12px;
+}
+.writing-entry-list {
+  max-height: 310px;
+  overflow: auto;
+}
+.writing-entry {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+.writing-entry > div:first-child {
+  flex: 1;
+  min-width: 180px;
+}
+.writing-entry strong {
+  font-size: 12px;
+}
+.writing-entry p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: pre-line;
+}
+.writing-entry button {
+  flex-shrink: 0;
+}
+.writing-entry-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+.writing-entry-editor > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.writing-entry-editor .rich-editor {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-height: 230px;
+  overflow: hidden;
+}
+.writing-entry-editor .tiptap {
+  min-height: 160px;
+}
+.writing-entry-editor .rich-toolbar {
+  padding: 6px;
+}
+.writing-entry-actions,
+.writing-delete-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.writing-delete-confirm {
+  width: 100%;
+  font-size: 11px;
+  padding-top: 8px;
+}
+.default-signature {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 16px;
+}
+.select-control:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 620px) {
+  .rich-toolbar {
+    padding: 6px 14px;
+  }
+  .rich-editor .tiptap {
+    padding: 16px 20px;
+  }
+  .compose-writing-tools {
+    padding: 8px 18px;
+  }
+  .writing-backdrop {
+    padding: 12px;
+  }
+  .writing-dialog {
+    padding: 16px;
+    max-height: calc(100vh - 24px);
+  }
+}
+
+.writing-dialog input,
+.writing-link-panel input {
+  background: var(--field);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 11px;
+  font-size: 12px;
+  outline: none;
+}
+.writing-dialog input:focus,
+.writing-link-panel input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue-soft);
+}

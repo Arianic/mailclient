@@ -46,10 +46,27 @@ export type OutlookDraft = {
   bcc: string;
   subject: string;
   body: string;
+  bodyHtml?: string | null;
+  signature?: WritingItem | null;
+  quote?: string | null;
+  writingInitialized?: boolean;
   replyId: string | null;
   state: "draft" | "sending" | "preparing" | "accepted" | "uncertain";
   attachments?: DraftAttachment[];
   notice?: string | null;
+};
+export type WritingItem = {
+  id: string;
+  name: string;
+  kind: "signature" | "template" | "snippet";
+  body: string;
+  bodyHtml?: string | null;
+  subject?: string | null;
+};
+export type WritingLibrary = {
+  revision: number;
+  entries: WritingItem[];
+  defaultSignature: string | null;
 };
 export type DraftAttachment = { id: string; name: string; size: number };
 export type OutlookFolder = {
@@ -106,6 +123,10 @@ function read<T>(key: string, action: () => Promise<T>): Promise<T> {
 // Tokens and network URLs never cross this bridge. Real mail is deliberately
 // kept out of the prototype's localStorage/SQLite key-value state and exports.
 export const outlookApi = {
+  writingLibrary: (id: string) =>
+    invoke<WritingLibrary>("outlook_writing_library", { id }),
+  saveWritingLibrary: (id: string, library: WritingLibrary) =>
+    invoke<WritingLibrary>("outlook_save_writing_library", { id, library }),
   indexControl: (action: "pause" | "resume" | "clear" | "rebuild") =>
     invoke<IndexStatus>("outlook_index_control", { action }),
   search: (query: string, offset = 0, sort = "relevance") =>

@@ -18,11 +18,13 @@ export function ThemedSelect({
   value,
   onValueChange,
   children,
+  disabled = false,
   "aria-label": label,
 }: {
   value: string;
   onValueChange: (value: string) => void;
   children: ReactNode;
+  disabled?: boolean;
   "aria-label": string;
 }) {
   const options = Children.toArray(children).flatMap((child) => {
@@ -46,16 +48,21 @@ export function ThemedSelect({
   const search = useRef({ text: "", time: 0 });
   const id = useId();
   const show = (index = Math.max(0, selected)) => {
+    if (disabled) return;
     search.current = { text: "", time: 0 };
     setActive(index);
     setOpen(true);
   };
   const choose = (index: number) => {
-    if (!options[index]) return;
+    if (disabled || !options[index]) return;
     onValueChange(options[index].value);
     setOpen(false);
     trigger.current?.focus();
   };
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   useLayoutEffect(() => {
     if (!open || !trigger.current) {
@@ -176,6 +183,7 @@ export function ThemedSelect({
         type="button"
         className="select-control"
         role="combobox"
+        disabled={disabled}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}

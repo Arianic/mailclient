@@ -489,7 +489,7 @@ pub async fn open_outlook_compose(
                         draft.cc = cc.join(", ");
                     }
                     let quote = outlook::index::body_text(&raw);
-                    draft.body = format!(
+                    draft.quote = Some(format!(
                         "\n\n— Original message —\nFrom: {}\nDate: {}\nSubject: {}\n\n{}",
                         raw["from"]["emailAddress"]["address"]
                             .as_str()
@@ -497,7 +497,7 @@ pub async fn open_outlook_compose(
                         raw["receivedDateTime"].as_str().unwrap_or(""),
                         raw["subject"].as_str().unwrap_or(""),
                         quote
-                    );
+                    ));
                 }
             }
             if mode == "forward" {
@@ -587,6 +587,26 @@ pub async fn outlook_load_draft(
         return Err("This draft belongs to another account".into());
     }
     Ok(draft)
+}
+#[tauri::command]
+pub async fn outlook_writing_library(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: String,
+) -> Result<outlook::writing::WritingLibrary, String> {
+    let draft = outlook_load_draft(app.clone(), window, id).await?;
+    app.state::<DraftStore>().writing_library(&draft.account)
+}
+#[tauri::command]
+pub async fn outlook_save_writing_library(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: String,
+    library: outlook::writing::WritingLibrary,
+) -> Result<outlook::writing::WritingLibrary, String> {
+    let draft = outlook_load_draft(app.clone(), window, id).await?;
+    app.state::<DraftStore>()
+        .save_writing_library(&draft.account, library)
 }
 #[tauri::command]
 pub async fn outlook_save_draft(

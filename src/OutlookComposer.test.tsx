@@ -19,6 +19,8 @@ vi.mock("./desktop", () => ({
 vi.mock("./outlook", () => ({
   outlookApi: {
     status: vi.fn(),
+    writingLibrary: vi.fn(),
+    saveWritingLibrary: vi.fn(),
     loadDraft: vi.fn(),
     saveDraft: vi.fn(),
     sendDraft: vi.fn(),
@@ -44,11 +46,19 @@ const draft: OutlookDraft = {
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.useFakeTimers();
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   history.replaceState({}, "", "/?outlookCompose=test-1");
   vi.mocked(outlookApi.status).mockResolvedValue({
     account: { email: draft.account, displayName: "Example" },
     clientId: "id",
     canSend: true,
+  });
+  vi.mocked(outlookApi.writingLibrary).mockResolvedValue({
+    revision: 0,
+    entries: [],
+    defaultSignature: null,
   });
   vi.mocked(outlookApi.loadDraft).mockResolvedValue({ ...draft });
   vi.mocked(outlookApi.saveDraft).mockResolvedValue();
@@ -160,5 +170,103 @@ describe("real Outlook composer", () => {
     expect(outlookApi.removeDraftFile).toHaveBeenCalledWith("test-1", "file-1");
     expect(host.textContent).not.toContain("report.pdf");
     expect(outlookApi.sendDraft).not.toHaveBeenCalled();
+  });
+  it("applies an account default signature once to a new rich draft and saves its snapshot", async () => {
+    const signature = {
+      id: "signature-1",
+      name: "Personal",
+      kind: "signature" as const,
+      body: "Alex",
+      bodyHtml: "<p><strong>Alex</strong></p>",
+    };
+    vi.mocked(outlookApi.writingLibrary).mockResolvedValue({
+      revision: 1,
+      entries: [signature],
+      defaultSignature: signature.id,
+    });
+    vi.mocked(outlookApi.loadDraft).mockResolvedValue({
+      ...draft,
+      body: "",
+      bodyHtml: "<p></p>",
+      quote: "Original message",
+    });
+    await render();
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(vi.mocked(outlookApi.saveDraft).mock.calls.at(-1)![0]).toMatchObject(
+      {
+        signature,
+        writingInitialized: true,
+        body: "",
+        quote: "Original message",
+      },
+    );
+    expect(host.querySelector(".message-signature strong")?.textContent).toBe(
+      "Alex",
+    );
+    expect(host.querySelector('[aria-label="Message format"]')).not.toBeNull();
+  });
+  it("requires confirmation before replacing writing with a template and preserves recipients and files", async () => {
+    const template = {
+      id: "template-1",
+      name: "Follow up",
+      kind: "template" as const,
+      body: "Thank you for your time.",
+      bodyHtml: "<p>Thank you for your time.</p>",
+      subject: "Following up",
+    };
+    vi.mocked(outlookApi.writingLibrary).mockResolvedValue({
+      revision: 1,
+      entries: [template],
+      defaultSignature: null,
+    });
+    vi.mocked(outlookApi.loadDraft).mockResolvedValue({
+      ...draft,
+      attachments: [{ id: "file-1", name: "report.pdf", size: 100 }],
+    });
+    await render();
+    await click("Writing library");
+    await click("Templates");
+    await click("Use template");
+    expect(
+      host.querySelector<HTMLTextAreaElement>('[aria-label="Message body"]')
+        ?.value,
+    ).toBe(draft.body);
+    expect(host.textContent).toContain(
+      "Recipients and attachments stay in place",
+    );
+    await click("Replace message");
+    await act(async () => vi.advanceTimersByTimeAsync(600));
+    expect(vi.mocked(outlookApi.saveDraft).mock.calls.at(-1)![0]).toMatchObject(
+      {
+        body: template.body,
+        subject: template.subject,
+        to: draft.to,
+        attachments: [{ id: "file-1", name: "report.pdf", size: 100 }],
+      },
+    );
+  });
+  it("inserts a plain-text snippet at the saved caret without replacing the message", async () => {
+    const snippet = {
+      id: "snippet-1",
+      name: "Thanks",
+      kind: "snippet" as const,
+      body: "THANKS",
+    };
+    vi.mocked(outlookApi.writingLibrary).mockResolvedValue({
+      revision: 1,
+      entries: [snippet],
+      defaultSignature: null,
+    });
+    await render();
+    host
+      .querySelector<HTMLTextAreaElement>('[aria-label="Message body"]')!
+      .setSelectionRange(2, 2);
+    await click("Writing library");
+    await click("Snippets");
+    await click("Insert snippet");
+    expect(
+      host.querySelector<HTMLTextAreaElement>('[aria-label="Message body"]')
+        ?.value,
+    ).toBe("A THANKSmessage");
   });
 });
