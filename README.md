@@ -1,56 +1,125 @@
 # Mail
 
-A personal mail client for CachyOS/GNOME, developed on Windows 11 with WSL2. Current milestone: personal Outlook mail with local whole-mailbox search, incremental caching, everyday mail actions, conversations and durable local drafts in a Tauri Linux desktop shell. Real sign-in requires your own Microsoft app registration; no AI service is connected. Sample mail is available only in browser development previews.
+A personal desktop mail client for **CachyOS and GNOME**, with a clean WhiteSur-inspired interface, local mailbox-wide search and rich writing tools.
 
-## Run the prototype
+**Personal alpha · Linux desktop · React + Rust / Tauri**
 
-Install a current Node.js LTS version, then:
+The connected client currently supports **one personal Outlook account**. Gmail, work IMAP, Google Calendar and Nextcloud are planned integrations. Development happens on Windows 11 with WSL2; native testing happens on CachyOS.
+
+![Rich-text composition and a selected signature in dark mode](docs/images/rich-writing-dark.jpg)
+
+*Development preview with synthetic email. The editor supports formatted text, signatures, templates and snippets in both light and dark appearances.*
+
+## What works today
+
+- **Outlook mail:** secure browser sign-in, real folders/subfolders, Important/Other using Outlook's Focused classification, indexed conversation history, Reply all and Forward.
+- **Search across mail:** sender and recipients, subjects, bodies and attachment names across indexed folders, with ranked results, snippets, phrases, Boolean operators, date/folder filters and local spelling suggestions.
+- **Rich writing:** formatting, headings, lists, quotes, safe links and undo/redo, plus a plain-text alternative. Account-specific signatures, reusable templates and snippets are saved locally.
+- **Mail actions:** archive, move to Deleted Items, folder moves, read/unread and moving into/out of Junk. Individual or bulk actions support selections of up to 100 and guarded session Undo.
+- **Drafts and files:** autosaved local drafts, recipient chips with locally derived contact suggestions, native file picking/drop, upload progress and up to 20 MB total in 20 outgoing attachments. Provider limits still apply.
+- **Reading and navigation:** sandboxed formatted email, images loaded on request, separate file downloads, previous/next messages and session restoration of folders, loaded pages and scroll position.
+- **Desktop behavior:** system/light/dark appearance, left window controls, separate compose windows, close-to-background, single-instance reopening and explicit Quit. Synchronization continues while the process is running.
+
+The current appearance uses a polished opaque fallback. Compositor blur, OS autostart and desktop notifications are not implemented yet.
+
+## Search that goes beyond the loaded inbox
+
+![Mailbox-wide search results with snippets and folder labels in light mode](docs/images/search-results-light.jpg)
+
+*Search preview with synthetic data. Results show matching text and their source folder; mail actions include Undo.*
+
+The initial scan walks each folder's message pages, then establishes incremental change tracking. Saved messages remain searchable offline. Indexing progress, Outlook's reported folder-item count and incomplete coverage stay visible. **Rescan entire mailbox** restarts the scan without clearing saved mail or drafts.
+
+Examples:
+
+```text
+from:alex invoice has:attachment
+"booking reference"
+(invoice OR receipt) -folder:junk
+person:alex@example.com after:2026-09-01 before:2026-10-01
+emails from alex about invoice last month
+```
+
+Search runs locally, with **no AI calls or Plus usage**. Common English phrases are interpreted into visible filters. Attachment filenames are indexed; text inside attached files and OCR are not. There is no 1,000-message search-result cap. Outlook's folder-item total can include non-email items, so it is not an exact email count.
+
+[Search syntax, indexing coverage and cache controls →](docs/search.md)
+
+## Run on CachyOS
+
+You need Node.js 22.12 or newer, npm, Rust/Cargo, the Linux desktop build dependencies and an unlocked GNOME Keyring. Follow the [Linux setup guide](docs/linux-desktop.md) for the dependency installation command and native checks.
+
+```sh
+git clone https://github.com/Arianic/mailclient.git
+cd mailclient
+npm ci
+npm run desktop:dev
+```
+
+To connect Outlook, create your own Microsoft app registration and follow the [Outlook setup guide](docs/outlook-setup.md). No client secret is needed.
+
+| Permission | Purpose |
+| --- | --- |
+| Mail.Read | Read and locally index the mailbox |
+| Mail.Send | Submit messages after an explicit Send action |
+| Mail.ReadWrite | Mail actions, read-status sync and the larger attachment upload path |
+
+Initial sign-in also uses User.Read and offline_access. Sending and mail-management permissions are enabled separately in Settings. Outlook-created drafts are currently a read-only folder view; **Local drafts** contains messages written in this client.
+
+### Update an existing checkout
+
+Quit through **Settings → Quit Mail**, then stop the development command with Ctrl+C. In the existing repository folder:
+
+```sh
+git pull --ff-only
+npm ci
+npm run desktop:dev
+```
+
+Settings, local drafts and credentials are retained. Updates can migrate local databases and schedule a fresh index scan. This project currently runs from source; installable packages and automatic updates are later work.
+
+## Writing tools
+
+Open **Writing library** in the composer to create and manage signatures, templates and snippets. Choose an account default signature, create a template from your current authored message, or insert a snippet at the cursor. Replacing existing writing with a template asks first and preserves recipients, attachments and the selected signature.
+
+Drafts keep their own signature snapshot, so later library edits do not silently rewrite existing drafts. New replies keep quoted history separate and place the signature before it. Existing plain-text drafts remain compatible.
+
+Sending has a **five-second Undo Send** delay. An accepted send is reported as submitted to Outlook, not confirmed delivery. Interrupted or uncertain submissions are held for review and are never automatically replayed.
+
+[Writing guide →](docs/writing.md)
+
+## Local data and privacy
+
+- Refresh credentials stay in **GNOME Keyring**; no plaintext token-file fallback is used.
+- Indexed mail and filename metadata use `outlook-mail.sqlite`. Drafts, attachment copies, send states and writing libraries use the separate `outlook-drafts.sqlite`.
+- These local mail databases are **not encrypted at rest**. The Linux app-data directory is owner-only. Settings provides pause, rescan and account-scoped cache clearing; local drafts have their own discard action.
+- Indexing does not automatically download attachment files or remote images. Loading remote images can disclose that the message was opened; permission is currently per message.
+- Credentials, mail and writing libraries stay out of appearance/settings exports and the prototype's sample-data store.
+- Received HTML is sanitized and isolated in a sandboxed frame. Outgoing rich text is independently restricted in the frontend and Rust backend.
+
+No cloud AI service is connected. The project's future AI boundary excludes work mail and derived work content; eligible personal bodies would require an explicit sharing action. Junk controls currently move messages, rather than training provider spam filtering or blocking senders.
+
+## Development and verification
 
 ```sh
 npm ci
-npm run dev
-```
-
-Open the local address shown in the terminal (normally http://127.0.0.1:5173). The same source can be pulled and run on the CachyOS laptop. Keep each environment's node_modules directory separate. Build verification:
-
-```sh
+npm run test
 npm run build
 ```
 
-The browser preview remains useful for design work. The Tauri shell builds on Linux, with real window controls, separate compose windows, close-to-background, single-instance reopening and an explicit Quit action. Formatted mail uses a sanitized, sandboxed renderer. Personal Outlook uses GNOME Keyring, opens directly on launch, supports Important/Other and older pages, and offers optional Mail.Send consent for new messages/replies. Images load only on request and files save through native dialogs. New provider actions still need laptop verification. Incremental synchronization runs while the app is open or hidden; OS autostart and notifications remain pending. See [Linux desktop setup](docs/linux-desktop.md) and [Outlook setup](docs/outlook-setup.md).
+For a browser-only design preview, run `npm run dev`. Normal browser views use synthetic sample mail and never send. The development-only `/?outlookPreview` reader and `/?outlookPreview=compose&outlookCompose=preview-draft` composer fixtures exercise the connected interface with synthetic data. These fixtures are excluded from production builds.
 
-## Browser design preview
+The latest implementation checkpoint passed **55 frontend tests and 48 Rust tests**, plus the production frontend build, Linux executable build and isolated software-rendered WSLg startup. Checks cover search pagination and recovery, private-data boundaries, draft persistence, HTML handling, send-state protections and writing tools. See [native development checks](docs/linux-desktop.md) and [development checkpoints](outputs/prototype-status.md).
 
-- Switch between light and dark with the appearance icon, or choose System in Settings.
-- Open conversations and return to the inbox. Archive and undo, star messages, change action categories, or move messages between Important and Other.
-- Toggle the sidebar for Drafts, Archive, Trash and follow-up views.
-- Search by sender, subject or sample message text; filter by account or unread status.
-- Compose in a separate browser window. Drafts autosave locally. If popup windows are blocked, an in-page composer is used instead.
-- Create and edit local sample calendar events. Month navigation works; Day and Week are initial agenda sketches anchored to the sample date, October 17, 2026.
-- Change inbox density and export appearance settings.
-- Account colors: Gmail yellow, Outlook blue, work IMAP green, adapted for light and dark themes.
-- Open the Studio North sample for formatted email, blocked remote-image placeholders, Original appearance and Plain text controls.
+CachyOS/GNOME interaction checks and real-account round trips remain necessary for new features. Automated tests never send actual mail. WSLg startup and browser previews do not establish full GNOME compatibility.
 
-All sample addresses use reserved example domains. Sample attachments only store filenames; nothing is uploaded. The browser composer is a preview and never sends. The Linux app has a separate real composer that submits only after Mail.Send consent and an explicit Send action. Real mail uses a separate local search/offline database; real drafts and send-state records use their own database. Both contain unencrypted local mail data.
+## Next milestones
 
-## Local state and reset
+1. GNOME notifications, quiet autostart and suspend/resume behavior.
+2. Gmail and work IMAP/SMTP, then a real unified inbox across accounts.
+3. Google Calendar synchronization and Nextcloud attachment sharing.
+4. Scheduled sending, From aliases, provider draft editing and configurable cache retention.
+5. Optional AI with explicit privacy/usage limits, followed by rules, shortcuts, custom themes and permission-controlled extensions.
 
-Sample mail changes, drafts, events and appearance preferences live in this browser's localStorage for the local preview origin. This is suitable only for synthetic prototype data, not real email credentials or private mail. To reset, clear site data for the local preview origin using your browser settings. No analytics or external assets are loaded by the prototype.
+These are planned capabilities. The browser's sample calendar and account colors do not represent connected calendar, Gmail or work IMAP integrations.
 
-The native shell stores sample data and preferences in a local SQLite workspace, under the operating system's app-data directory for `dev.personal.mail`. Drafts are stored separately and updates synchronize across application windows. Save failures remain visible and can be retried; compose windows wait for pending saves before closing. The browser preview retains its separate localStorage data. Neither store contains credentials. Personal Outlook refresh credentials are saved only in GNOME Keyring. Real drafts, attachment copies and send states persist separately in `outlook-drafts.sqlite` (not encrypted at rest). The separate `outlook-mail.sqlite` caches indexed message bodies, folder metadata and attachment names for offline reading/search. It is not encrypted. Settings offers pause/resume and account-scoped cache clearing; credentials and mail are excluded from settings exports.
-
-## Project decisions
-
-See [the action plan](outputs/mail-client-action-plan.md) for full requirements and milestones. Key constraints: work mail must never enter cloud AI; personal automatic cloud relevance analysis may use sender and subject only; manual body sharing requires an explicit action; AI usage caps will follow a measured trial. These boundaries are recorded in the preview, but backend enforcement is a later implementation stage.
-
-## Connected desktop experience
-
-The native app lists actual Outlook folders and expandable subfolders, plus separate Local drafts, with no sample navigation. Important/Other follows Outlook's Focused classification. Opening a message shows a quieter reading page, expanded indexed conversation history, Reply, Reply all and Forward. Folder state, loaded pages and scroll position are remembered during the session; previous/next navigation is available.
-
-The top search field searches all indexed Outlook folders, including body text, recipients and filenames. It supports ranked results, snippets, spelling suggestions, phrases, Boolean queries, date/attachment/folder filters and common English date phrases. Initial indexing and filename coverage remain visible. See [search syntax, coverage and privacy](docs/search.md).
-
-Use Settings → Personal Outlook → Enable sending for Mail.Send consent, and Enable mail actions & read sync for Mail.ReadWrite consent. Archive, move to Deleted Items, move folders, Junk/out of Junk and read/unread work individually or in selections of up to 100. Undo is available for ten minutes in the current session, provided the message has not changed externally. Junk actions move mail; they do not claim to train Microsoft's spam filtering or block senders.
-
-Compose uses editable recipient chips with locally derived contact suggestions, optional Cc/Bcc, rich or plain text, signatures, reusable templates/snippets, discard confirmation, native attachment picking/drop, progress and Done after submission. Up to 20 MB total and 20 files can be copied into a draft; the larger upload path also requires Mail.ReadWrite. Provider limits still apply. A five-second Undo Send precedes submission. Uncertain sends are held and never automatically replayed. Scheduled sending and From aliases remain pending. See [writing tools](docs/writing.md). See [Outlook setup and laptop checks](docs/outlook-setup.md).
-
-For visual QA only, `npm run dev` also exposes `/?outlookPreview` with synthetic connected-reader/folder data and `/?outlookPreview=compose&outlookCompose=preview-draft` for composing with mock attachments. These fixtures are excluded from production builds and never appear in normal app navigation.
+[Full project plan →](outputs/mail-client-action-plan.md)
