@@ -33,7 +33,8 @@ async fn outlook_connect(
     enable_managing: Option<bool>,
 ) -> Result<outlook::Status, String> {
     main_window(&window)?;
-    app.state::<outlook::OutlookService>()
+    let result = app
+        .state::<outlook::OutlookService>()
         .connect(
             client_id,
             enable_sending.unwrap_or(false),
@@ -44,7 +45,11 @@ async fn outlook_connect(
                     .map_err(|_| "Could not open your browser for Microsoft sign-in".into())
             },
         )
-        .await
+        .await;
+    if result.is_ok() {
+        app.state::<outlook::index::MailIndex>().2.notify_one();
+    }
+    result
 }
 #[tauri::command]
 fn outlook_cancel(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
@@ -74,11 +79,65 @@ async fn outlook_inbox(
     view: String,
     older: bool,
     folder: Option<String>,
+    offset: Option<u32>,
 ) -> Result<outlook::Inbox, String> {
     main_window(&window)?;
-    app.state::<outlook::OutlookService>()
-        .inbox(view, older, folder.unwrap_or_else(|| "inbox".into()))
-        .await
+    let service = app.state::<outlook::OutlookService>();
+    let account = service.draft_account().await?.to_lowercase();
+    let index = app.state::<outlook::index::MailIndex>();
+    let folder = folder.unwrap_or_else(|| "inbox".into());
+    let resolved = if folder == "inbox" {
+        index
+            .folders(&account)?
+            .into_iter()
+            .find(|f| f.is_inbox)
+            .map(|f| f.id)
+            .unwrap_or_else(|| folder.clone())
+    } else {
+        folder.clone()
+    };
+    let cached_query = format!(
+        "folderid:\"{resolved}\" {}",
+        match view.as_str() {
+            "important" => "is:important",
+            "other" => "is:other",
+            _ => "",
+        }
+    );
+    if index.folder_ready(&account, &resolved)? {
+        let page = index.search(&account, &cached_query, offset.unwrap_or(0), "newest")?;
+        service
+            .session
+            .lock()
+            .await
+            .known_messages
+            .extend(page.messages.iter().map(|m| (m.id.clone(), m.clone())));
+        return Ok(outlook::Inbox {
+            messages: page.messages,
+            has_more: page.has_more,
+            offline: index.status(&account)?.error.is_some(),
+        });
+    }
+    match service.inbox(view, older, folder).await {
+        Ok(page) => Ok(page),
+        Err(error) => {
+            let page = index.search(&account, &cached_query, offset.unwrap_or(0), "newest")?;
+            if page.messages.is_empty() {
+                return Err(error);
+            }
+            service
+                .session
+                .lock()
+                .await
+                .known_messages
+                .extend(page.messages.iter().map(|m| (m.id.clone(), m.clone())));
+            Ok(outlook::Inbox {
+                messages: page.messages,
+                has_more: page.has_more,
+                offline: true,
+            })
+        }
+    }
 }
 #[tauri::command]
 async fn outlook_message(
@@ -87,7 +146,7 @@ async fn outlook_message(
     id: String,
 ) -> Result<outlook::Message, String> {
     main_window(&window)?;
-    app.state::<outlook::OutlookService>().message(id).await
+    outlook_commands::read_message(&app, id).await
 }
 
 #[tauri::command]
@@ -241,6 +300,29 @@ fn main() {
                 outlook::drafts::DraftStore::open(&directory.join("outlook-drafts.sqlite"))
                     .map_err(std::io::Error::other)?,
             );
+            app.manage(
+                outlook::index::MailIndex::open(&directory.join("outlook-mail.sqlite"))
+                    .map_err(std::io::Error::other)?,
+            );
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let service = handle.state::<outlook::OutlookService>();
+                    let index = handle.state::<outlook::index::MailIndex>();
+                    let mut pending = false;
+                    if let Ok(account) = service.draft_account().await {
+                        match service.sync_step(&index).await {
+                            Ok(more) => {
+                                pending = more;
+                                index.error(&account.to_lowercase(), None);
+                                let _ = handle.emit("outlook-index-changed", ());
+                            }
+                            Err(error) => index.error(&account.to_lowercase(), Some(&error)),
+                        }
+                    }
+                    tokio::select! { _=tokio::time::sleep(std::time::Duration::from_millis(if pending{400}else{60_000}))=>{},_=index.2.notified()=>{} }
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -264,6 +346,16 @@ fn main() {
             outlook_commands::outlook_remove_draft_file,
             outlook_commands::outlook_folders,
             outlook_commands::outlook_mark_read,
+            outlook_commands::outlook_search,
+            outlook_commands::outlook_index_status,
+            outlook_commands::outlook_index_control,
+            outlook_commands::outlook_sync,
+            outlook_commands::outlook_cached_folders,
+            outlook_commands::outlook_action,
+            outlook_commands::outlook_undo,
+            outlook_commands::outlook_conversation,
+            outlook_commands::outlook_contacts,
+            outlook_commands::outlook_discard_draft,
             outlook_commands::outlook_attachments,
             outlook_commands::outlook_load_images,
             outlook_commands::outlook_download_attachment,
@@ -278,6 +370,9 @@ fn main() {
             }
         })
         .on_window_event(|window, event| {
+            if let (Some(id),tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop{paths,..}))=(window.label().strip_prefix("outlook-compose-"),event){
+                if valid_draft_id(id){let id=id.to_string();let paths=paths.clone();let handle=window.app_handle().clone();let label=window.label().to_string();let _=window.emit("outlook-draft-files",serde_json::json!({"busy":true}));tauri::async_runtime::spawn(async move{let result=outlook_commands::attach_paths(handle.clone(),id,paths).await;if let Some(window)=handle.get_webview_window(&label){let payload=match result{Ok(files)=>serde_json::json!({"busy":false,"attachments":files}),Err(error)=>serde_json::json!({"busy":false,"error":error})};let _=window.emit("outlook-draft-files",payload);}});}
+            }
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();

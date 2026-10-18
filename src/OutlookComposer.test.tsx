@@ -8,6 +8,9 @@ const native = vi.hoisted(() => ({
   destroy: vi.fn().mockResolvedValue(undefined),
   onCloseRequested: vi.fn().mockResolvedValue(() => {}),
 }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => native }));
 vi.mock("./desktop", () => ({
   dragNativeWindow: vi.fn(),
@@ -21,6 +24,8 @@ vi.mock("./outlook", () => ({
     sendDraft: vi.fn(),
     addDraftFiles: vi.fn(),
     removeDraftFile: vi.fn(),
+    contacts: vi.fn().mockResolvedValue([]),
+    discardDraft: vi.fn(),
   },
 }));
 let root: Root;
@@ -78,6 +83,17 @@ async function click(text: string) {
 }
 
 describe("real Outlook composer", () => {
+  it("discards only after explicit confirmation and cancels pending autosaves", async () => {
+    vi.mocked(outlookApi.discardDraft).mockResolvedValue();
+    await render();
+    await click("Discard draft");
+    expect(outlookApi.discardDraft).not.toHaveBeenCalled();
+    await click("Discard permanently");
+    expect(outlookApi.discardDraft).toHaveBeenCalledExactlyOnceWith("test-1");
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(outlookApi.saveDraft).not.toHaveBeenCalled();
+    expect(native.destroy).toHaveBeenCalled();
+  });
   it("allows undo during the delay without submitting mail", async () => {
     await render();
     await submit();
@@ -128,8 +144,8 @@ describe("real Outlook composer", () => {
     await click("Cc");
     expect(host.querySelector('input[aria-label="Cc"]')).not.toBeNull();
     expect(
-      (host.querySelector('input[aria-label="To"]') as HTMLInputElement).value,
-    ).toBe(draft.to);
+      host.querySelector('[aria-label="To recipients"]')?.textContent,
+    ).toContain(draft.to);
   });
   it("attaches a local file, persists it, and removes it without sending", async () => {
     vi.mocked(outlookApi.addDraftFiles).mockResolvedValue([

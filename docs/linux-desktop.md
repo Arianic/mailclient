@@ -51,7 +51,7 @@ Run the resulting binary in a user session with a session D-Bus. WSLg provides a
 - System light/dark changes, both manual overrides, font scaling, keyboard focus.
 - Gmail yellow, Outlook blue, work IMAP green throughout navigation and message views.
 - Open the Studio North sample email: formatted content loads, remote image is replaced, Original appearance and Plain text work.
-- Verify unreadable/cut-off email content can be read by scrolling inside the protected message view. Automatic frame sizing and trusted-sender image loading are future work.
+- Verify unreadable/cut-off email content can be read by scrolling inside the protected message view. The frame resizes with available space; trusted-sender automatic image loading remains future work.
 
 GNOME Keyring and an initial personal Outlook reader are implemented; actual sign-in/keyring checks need your Microsoft registration and laptop session. Autostart, notification delivery, real blur and other mailbox integrations remain pending. The current shell uses the opaque fallback; it does not enable compositor effects or change GNOME settings.
 
@@ -59,9 +59,9 @@ GNOME Keyring and an initial personal Outlook reader are implemented; actual sig
 
 The native shell uses `workspace.sqlite` in its OS app-data directory. On Linux the application directory is restricted to its owner. SQLite uses a versioned schema, WAL and full synchronization. Preferences, sample mail state and sample calendar data are persisted; each draft is a separate record so simultaneous compose windows do not overwrite unrelated drafts. Windows receive revisioned updates, ignore stale events and show persistent save failures. Closing a compose window flushes its draft first.
 
-The browser preview still uses localStorage and does not share its sample data with the native app. No credentials are stored in SQLite. The database is not encrypted at rest. Outlook refresh credentials are kept separately in Secret Service/GNOME Keyring; its access token and fetched messages stay in memory. An offline real-mail cache/schema is still pending.
+The browser preview still uses localStorage and does not share its sample data with the native app. No credentials are stored in SQLite. The database is not encrypted at rest. Outlook refresh credentials are kept separately in Secret Service/GNOME Keyring; its access token stays in memory. Indexed message bodies, folders and filename metadata persist separately in the unencrypted `outlook-mail.sqlite` for search/offline reading. See [search coverage and cache controls](search.md).
 
-Real drafts and send states now use a separate `outlook-drafts.sqlite` in the owner-only app data directory. Drafts are not encrypted at rest. Credential storage remains separate. A send is durably marked before its sole network attempt; interrupted submissions recover as uncertain instead of being replayed. Compose windows must finish saving before closing and cannot close during submission. Disconnect/quit require closing those windows first.
+Real drafts and send states now use a separate `outlook-drafts.sqlite` in the owner-only app data directory. Drafts are not encrypted at rest. Credential storage remains separate. A send is durably marked before submission; interrupted submissions recover as uncertain instead of being replayed. Larger attachment preparation uses a distinct recoverable state and a persisted server draft reference. Compose windows must finish saving before closing and cannot close during submission. Disconnect/quit require closing those windows first.
 
 The Rust privacy module prepares future cloud payloads: automatic personal relevance input excludes message bodies; manual summary/reply requires an explicit body request; work accounts and personal messages marked as containing derived work material are rejected. No cloud dispatcher exists yet. Future adapters must resolve account identity/provenance from trusted backend records and use this boundary; these tests do not claim that real provider or AI integrations have already been completed.
 
@@ -69,6 +69,12 @@ The Rust privacy module prepares future cloud payloads: automatic personal relev
 
 HTML is sanitized with DOMPurify and a presentation-only allowlist, then placed in an iframe with an empty `sandbox` attribute, no same-origin permission and no script permission. A policy inside the frame blocks scripts, connections, external frames, forms and remote images. Navigation targets, inline event handlers, app drag markers and unsafe CSS are removed. Safe raster data images are allowed; SVG and arbitrary embedded documents are not.
 
-Original appearance changes safe colors only; it never grants scripts, external images, navigation or application commands. The shell does not grant remote origins capabilities. Do not add `allow-scripts`, `allow-same-origin`, wildcard remote origins, shell execution or filesystem access to make email features work. Trusted-sender images and CID attachments require a separate resource broker before real mail is supported.
+Original appearance changes safe colors only; it never grants scripts, external images, navigation or application commands. The shell does not grant remote origins capabilities. Do not add `allow-scripts`, `allow-same-origin`, wildcard remote origins, shell execution or filesystem access to make email features work. Per-message remote and CID images use a separate bounded resource broker. Trusted-sender automatic permission remains future work.
 
 The renderer tests cover known adversarial examples. They are one part of validation, not a claim that the entire future mail client is security-audited.
+
+## Search and mail-actions update
+
+After pulling, the connected Outlook account starts local whole-history indexing. Check the coverage status before judging search completeness. Try a body-only phrase, `from:someone has:attachment`, and an older Sent Items message; then reopen cached mail offline. Pause/clear controls and the unencrypted-cache explanation are in Personal Outlook settings. The index does not download binary attachments. See [search guide](search.md).
+
+Enable mail actions & read sync if Mail.ReadWrite is not already granted. Test archive/Undo, moving to Deleted Items/Undo, folder moves and bulk read/unread on a few chosen messages. Test Reply all recipients, Forward's copied files, native file drop, local discard and Done after submission. The application supports 20 MB total in 20 outgoing files; provider delivery limits can be lower. Larger uploads require both Mail.Send and Mail.ReadWrite. No automated check sends actual mail.

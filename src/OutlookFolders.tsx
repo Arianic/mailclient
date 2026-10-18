@@ -9,6 +9,10 @@ export const defaultOutlookFolder: OutlookFolder = {
   childFolderCount: 0,
   isInbox: true,
 };
+const branches = new Map<
+  string,
+  { open: boolean; children: OutlookFolder[] | null }
+>();
 
 function FolderBranch({
   folder,
@@ -21,8 +25,13 @@ function FolderBranch({
   onSelect: (folder: OutlookFolder) => void;
   depth?: number;
 }) {
-  const [open, setOpen] = useState(false);
-  const [children, setChildren] = useState<OutlookFolder[] | null>(null);
+  const [open, setOpen] = useState(branches.get(folder.id)?.open || false);
+  const [children, setChildren] = useState<OutlookFolder[] | null>(
+    branches.get(folder.id)?.children || null,
+  );
+  useEffect(() => {
+    branches.set(folder.id, { open, children });
+  }, [folder.id, open, children]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const expand = async () => {
@@ -122,13 +131,26 @@ export function OutlookFolders({
     try {
       setFolders(await outlookApi.folders());
     } catch (error) {
-      setError(String(error));
+      try {
+        const cached = await outlookApi.cachedFolders();
+        setFolders(cached);
+        if (!cached.length) setError(String(error));
+      } catch {
+        setError(String(error));
+      }
     } finally {
       setBusy(false);
     }
   };
   useEffect(() => {
     void load();
+    const refresh = () => void load();
+    window.addEventListener("outlook-changed", refresh);
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      window.removeEventListener("outlook-changed", refresh);
+      clearInterval(timer);
+    };
   }, []);
   return (
     <div className="outlook-folders">

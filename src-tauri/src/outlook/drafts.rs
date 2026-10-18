@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Mutex};
 
-pub const ATTACHMENT_LIMIT: usize = 2_000_000;
+pub const ATTACHMENT_LIMIT: usize = 20_000_000;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DraftAttachment {
     pub id: String,
@@ -26,8 +26,90 @@ pub struct Draft {
     pub state: String,
     #[serde(default)]
     pub attachments: Vec<DraftAttachment>,
+    #[serde(default)]
+    pub notice: Option<String>,
 }
 impl DraftStore {
+    pub(super) fn clear_remote(&self, id: &str) -> Result<(), String> {
+        self.0
+            .lock()
+            .map_err(|_| "Draft storage unavailable")?
+            .execute("DELETE FROM draft_remotes WHERE id=?1", [id])
+            .map_err(|_| "Could not clear prepared-draft reference")?;
+        Ok(())
+    }
+    pub(super) fn remote(&self, id: &str) -> Result<Option<String>, String> {
+        use rusqlite::OptionalExtension;
+        self.0
+            .lock()
+            .map_err(|_| "Draft storage unavailable")?
+            .query_row(
+                "SELECT remote_id FROM draft_remotes WHERE id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| "Could not read upload draft".into())
+    }
+    pub(super) fn save_remote(&self, id: &str, remote: &str) -> Result<(), String> {
+        self.0.lock().map_err(|_|"Draft storage unavailable")?.execute("INSERT INTO draft_remotes(id,remote_id) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET remote_id=excluded.remote_id",params![id,remote]).map_err(|_|"Could not save upload draft")?;
+        Ok(())
+    }
+    pub(super) fn phase(&self, id: &str, from: &str, to: &str) -> Result<(), String> {
+        let changed = self
+            .0
+            .lock()
+            .map_err(|_| "Draft storage unavailable")?
+            .execute(
+                "UPDATE drafts SET state=?1 WHERE id=?2 AND state=?3",
+                params![to, id, from],
+            )
+            .map_err(|_| "Could not save send phase")?;
+        if changed != 1 {
+            return Err("The send phase changed; reopen this draft.".into());
+        }
+        Ok(())
+    }
+    pub(super) fn files(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let c = self.0.lock().map_err(|_| "Draft storage unavailable")?;
+        let mut query = c
+            .prepare("SELECT name,bytes FROM draft_attachments WHERE draft_id=?1 ORDER BY rowid")
+            .map_err(|_| "Could not read attachments")?;
+        let rows = query
+            .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|_| "Could not read attachments")?;
+        rows.map(|r| r.map_err(|_| "Could not read attachment".into()))
+            .collect()
+    }
+    pub fn discard(&self, id: &str) -> Result<(), String> {
+        let mut c = self.0.lock().map_err(|_| "Draft storage unavailable")?;
+        let tx = c.transaction().map_err(|_| "Could not discard draft")?;
+        editable(&tx, id)?;
+        tx.execute("DELETE FROM draft_attachments WHERE draft_id=?1", [id])
+            .map_err(|_| "Could not discard attachments")?;
+        tx.execute("DELETE FROM draft_remotes WHERE id=?1", [id])
+            .map_err(|_| "Could not discard upload reference")?;
+        tx.execute("DELETE FROM drafts WHERE id=?1 AND state='draft'", [id])
+            .map_err(|_| "Could not discard draft")?;
+        tx.commit()
+            .map_err(|_| "Could not finish discarding draft")?;
+        Ok(())
+    }
+    pub fn set_forward(&self, draft: &Draft) -> Result<(), String> {
+        validate(draft)?;
+        let previous = self.load(&draft.id)?;
+        if previous.account != draft.account || draft.reply_id.is_some() {
+            return Err("Invalid forwarding identity".into());
+        }
+        let c = self.0.lock().map_err(|_| "Draft storage unavailable")?;
+        editable(&c, &draft.id)?;
+        c.execute(
+            "UPDATE drafts SET value=?1 WHERE id=?2 AND state='draft'",
+            params![draft_json(draft)?, draft.id],
+        )
+        .map_err(|_| "Could not prepare forward")?;
+        Ok(())
+    }
     pub fn open(path: &Path) -> Result<Self, String> {
         let connection = Connection::open(path).map_err(|_| "Could not open mail drafts")?;
         Self::initialize(connection)
@@ -39,10 +121,10 @@ impl DraftStore {
         let version: u32 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(|_| "Could not read draft storage version")?;
-        if version > 2 {
+        if version > 3 {
             return Err("Mail drafts require a newer app version".into());
         }
-        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN; CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, account TEXT NOT NULL, value TEXT NOT NULL, state TEXT NOT NULL, updated INTEGER NOT NULL DEFAULT(unixepoch())); CREATE TABLE IF NOT EXISTS draft_attachments (id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL); UPDATE drafts SET state='uncertain' WHERE state='sending'; PRAGMA user_version=2; COMMIT;").map_err(|_| "Could not initialize draft storage")?;
+        connection.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; BEGIN; CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, account TEXT NOT NULL, value TEXT NOT NULL, state TEXT NOT NULL, updated INTEGER NOT NULL DEFAULT(unixepoch())); CREATE TABLE IF NOT EXISTS draft_attachments (id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, name TEXT NOT NULL, bytes BLOB NOT NULL); UPDATE drafts SET state='uncertain' WHERE state='sending'; CREATE TABLE IF NOT EXISTS draft_remotes(id TEXT PRIMARY KEY,remote_id TEXT NOT NULL); UPDATE drafts SET state='draft' WHERE state='preparing'; PRAGMA user_version=3; COMMIT;").map_err(|_| "Could not initialize draft storage")?;
         Ok(Self(Mutex::new(connection)))
     }
     pub fn create(&self, draft: &Draft) -> Result<(), String> {
@@ -157,7 +239,7 @@ impl DraftStore {
                     .sum::<i64>()
                 > ATTACHMENT_LIMIT as i64
         {
-            return Err("Attachments can total up to 2 MB (20 files). Larger-file sharing will be added later.".into());
+            return Err("Attachments can total up to 20 MB (20 files).".into());
         }
         for (name, bytes) in files {
             let file_id = oauth2::CsrfToken::new_random().secret().clone();
@@ -296,6 +378,43 @@ fn prepare(draft: &Draft) -> Result<(String, serde_json::Value), String> {
 }
 
 impl super::OutlookService {
+    pub async fn discard_local_draft(&self, id: &str, store: &DraftStore) -> Result<(), String> {
+        let draft = store.load(id)?;
+        if draft.state != "draft" {
+            return Err("An uncertain or submitted send record cannot be discarded here. Check Sent Items first.".into());
+        }
+        if let Some(remote) = store.remote(id)? {
+            let token = {
+                let mut s = self.session.lock().await;
+                self.access(&mut s).await?
+            };
+            let mut url = reqwest::Url::parse(&format!("{}/me/messages/", super::GRAPH)).unwrap();
+            url.path_segments_mut()
+                .unwrap()
+                .pop_if_empty()
+                .push(&remote);
+            let raw: serde_json::Value =
+                self.get(&format!("{url}?$select=isDraft"), &token).await?;
+            if raw["isDraft"] != true {
+                return Err("The Outlook copy may already have been sent. Check Sent Items before discarding this record.".into());
+            }
+            let r = self
+                .http
+                .delete(url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .map_err(|_| {
+                    "Could not discard the Outlook upload draft; the local draft was kept."
+                })?;
+            if r.status().as_u16() != 204 {
+                return Err(
+                    "Could not discard the Outlook upload draft; the local draft was kept.".into(),
+                );
+            }
+        }
+        store.discard(id)
+    }
     pub async fn draft_account(&self) -> Result<String, String> {
         let mut session = self.session.lock().await;
         if session.credential.is_none() {
@@ -325,6 +444,7 @@ impl super::OutlookService {
             reply_id: reply_id.clone(),
             state: "draft".into(),
             attachments: Vec::new(),
+            notice: None,
         };
         if let Some(reply_id) = reply_id {
             let session = self.session.lock().await;
@@ -352,10 +472,19 @@ impl super::OutlookService {
         store.create(&draft)?;
         Ok(draft)
     }
-    pub async fn send_draft(&self, id: String, store: &DraftStore) -> Result<String, String> {
+    pub async fn send_draft(
+        &self,
+        id: String,
+        store: &DraftStore,
+        progress: impl Fn(usize, usize) + Send + Sync,
+    ) -> Result<String, String> {
         let mut session = self.session.lock().await;
         let token = self.access(&mut session).await?;
-        let credential = session.credential.as_ref().ok_or("Connect Outlook first")?;
+        let credential = session
+            .credential
+            .as_ref()
+            .ok_or("Connect Outlook first")?
+            .clone();
         if !credential.send_enabled {
             return Err("Enable sending in Settings and approve Microsoft Mail.Send first.".into());
         }
@@ -366,9 +495,24 @@ impl super::OutlookService {
         {
             return Err("This draft belongs to another account".into());
         }
+        drop(session);
         // Claim the durable draft first. Concurrent saves cannot change the
         // recipient/body snapshot used for this single network attempt.
         let draft = store.begin_send(&id)?;
+        if draft
+            .attachments
+            .iter()
+            .map(|file| file.size)
+            .sum::<usize>()
+            > 2_000_000
+            || store.remote(&id)?.is_some()
+        {
+            if !credential.manage_enabled {
+                store.finish_send(&id, "draft")?;
+                return Err("Files over 2 MB need Mail.ReadWrite for Outlook uploads. Enable mail actions in Settings first; your draft is saved.".into());
+            }
+            return super::delivery::send_large(&self.http, &token, &draft, store, &progress).await;
+        }
         let prepared = prepare(&draft).and_then(|(url, mut payload)| {
             let attachments = store.send_attachments(&id)?;
             if !attachments.is_empty() {
@@ -413,7 +557,7 @@ impl super::OutlookService {
             {
                 store.finish_send(&id, "draft")?;
                 if response.status().as_u16() == 401 {
-                    session.access = None;
+                    self.session.lock().await.access = None;
                 }
                 Err("Outlook rejected this send. Your draft is saved. Check recipients, sending permission or connection before trying again.".into())
             }
@@ -428,6 +572,30 @@ impl super::OutlookService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn interrupted_upload_preparation_recovers_as_a_draft_and_discard_removes_files() {
+        let path = std::env::temp_dir().join(format!(
+            "mail-preparation-{}.sqlite",
+            oauth2::CsrfToken::new_random().secret()
+        ));
+        {
+            let store = DraftStore::open(&path).unwrap();
+            store.create(&draft()).unwrap();
+            store
+                .add_files("test-1", vec![("file.txt".into(), vec![1, 2, 3])])
+                .unwrap();
+            store.begin_send("test-1").unwrap();
+            store.phase("test-1", "sending", "preparing").unwrap();
+        }
+        {
+            let store = DraftStore::open(&path).unwrap();
+            assert_eq!(store.load("test-1").unwrap().state, "draft");
+            store.discard("test-1").unwrap();
+            assert!(store.load("test-1").is_err());
+            assert!(store.files("test-1").unwrap().is_empty());
+        }
+        std::fs::remove_file(path).unwrap();
+    }
     fn draft() -> Draft {
         Draft {
             id: "test-1".into(),
@@ -440,6 +608,7 @@ mod tests {
             reply_id: None,
             state: "draft".into(),
             attachments: Vec::new(),
+            notice: None,
         }
     }
     #[test]

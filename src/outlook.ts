@@ -19,13 +19,24 @@ export type OutlookSummary = {
   isRead: boolean;
   hasAttachments: boolean;
   inferenceClassification?: string | null;
+  toRecipients?: NonNullable<OutlookSummary["from"]>[];
+  ccRecipients?: NonNullable<OutlookSummary["from"]>[];
+  bccRecipients?: NonNullable<OutlookSummary["from"]>[];
+  parentFolderId?: string;
+  conversationId?: string;
 };
-export type OutlookInbox = { messages: OutlookSummary[]; hasMore: boolean };
+export type OutlookInbox = {
+  messages: OutlookSummary[];
+  hasMore: boolean;
+  offline?: boolean;
+};
 export type OutlookMessage = {
   id: string;
   body: { contentType: string; content: string };
-  toRecipients?: OutlookSummary["from"][];
-  ccRecipients?: OutlookSummary["from"][];
+  toRecipients?: NonNullable<OutlookSummary["from"]>[];
+  ccRecipients?: NonNullable<OutlookSummary["from"]>[];
+  bccRecipients?: NonNullable<OutlookSummary["from"]>[];
+  offline?: boolean;
 };
 export type OutlookDraft = {
   id: string;
@@ -36,8 +47,9 @@ export type OutlookDraft = {
   subject: string;
   body: string;
   replyId: string | null;
-  state: "draft" | "sending" | "accepted" | "uncertain";
+  state: "draft" | "sending" | "preparing" | "accepted" | "uncertain";
   attachments?: DraftAttachment[];
+  notice?: string | null;
 };
 export type DraftAttachment = { id: string; name: string; size: number };
 export type OutlookFolder = {
@@ -58,6 +70,27 @@ export type OutlookImages = {
   images: { source: string; dataUrl: string }[];
   blocked: number;
 };
+export type IndexStatus = {
+  paused?: boolean;
+  messages: number;
+  folders: number;
+  pending: number;
+  missingFiles: number;
+  lastSync: number;
+  error: string | null;
+};
+export type SearchPage = OutlookInbox & {
+  total: number;
+  snippets: Record<string, string>;
+  suggestions: string[];
+  status: IndexStatus;
+};
+export type ActionResult = {
+  ids: string[];
+  failures: { id: string; error: string }[];
+  undo: string | null;
+};
+export type Contact = { name: string | null; address: string | null };
 
 const reads = new Map<string, Promise<unknown>>();
 function read<T>(key: string, action: () => Promise<T>): Promise<T> {
@@ -71,6 +104,34 @@ function read<T>(key: string, action: () => Promise<T>): Promise<T> {
 // Tokens and network URLs never cross this bridge. Real mail is deliberately
 // kept out of the prototype's localStorage/SQLite key-value state and exports.
 export const outlookApi = {
+  indexControl: (action: "pause" | "resume" | "clear") =>
+    invoke<IndexStatus>("outlook_index_control", { action }),
+  search: (query: string, offset = 0, sort = "relevance") =>
+    read(`search:${query}:${offset}:${sort}`, () =>
+      invoke<SearchPage>("outlook_search", { query, offset, sort }),
+    ),
+  indexStatus: () =>
+    read("index-status", () => invoke<IndexStatus>("outlook_index_status")),
+  sync: () => read("sync", () => invoke<boolean>("outlook_sync")),
+  cachedFolders: () =>
+    read("cached-folders", () =>
+      invoke<OutlookFolder[]>("outlook_cached_folders"),
+    ),
+  action: (ids: string[], action: string, destination: string | null = null) =>
+    invoke<ActionResult>("outlook_action", { ids, action, destination }),
+  undo: (key: string) => invoke<ActionResult>("outlook_undo", { key }),
+  conversation: (id: string) =>
+    read(`conversation:${id}`, () =>
+      invoke<{
+        messages: (OutlookSummary & OutlookMessage)[];
+        complete: boolean;
+      }>("outlook_conversation", { id }),
+    ),
+  contacts: (query: string) =>
+    read(`contacts:${query}`, () =>
+      invoke<Contact[]>("outlook_contacts", { query }),
+    ),
+  discardDraft: (id: string) => invoke<void>("outlook_discard_draft", { id }),
   status: () => read("status", () => invoke<OutlookStatus>("outlook_status")),
   connect: (clientId: string, enableSending = false, enableManaging = false) =>
     invoke<OutlookStatus>("outlook_connect", {
@@ -84,9 +145,10 @@ export const outlookApi = {
     view: "important" | "other" | "all" = "important",
     older = false,
     folder = "inbox",
+    offset = 0,
   ) =>
-    read(`inbox:${folder}:${view}:${older}`, () =>
-      invoke<OutlookInbox>("outlook_inbox", { view, older, folder }),
+    read(`inbox:${folder}:${view}:${older}:${offset}`, () =>
+      invoke<OutlookInbox>("outlook_inbox", { view, older, folder, offset }),
     ),
   folders: (parent: string | null = null) =>
     read(`folders:${parent}`, () =>
@@ -98,8 +160,11 @@ export const outlookApi = {
     read(`message:${id}`, () =>
       invoke<OutlookMessage>("outlook_message", { id }),
     ),
-  openCompose: (draftId: string | null = null, replyId: string | null = null) =>
-    invoke<void>("open_outlook_compose", { draftId, replyId }),
+  openCompose: (
+    draftId: string | null = null,
+    replyId: string | null = null,
+    mode: "reply" | "replyAll" | "forward" = "reply",
+  ) => invoke<void>("open_outlook_compose", { draftId, replyId, mode }),
   drafts: () => read("drafts", () => invoke<OutlookDraft[]>("outlook_drafts")),
   loadDraft: (id: string) =>
     read(`draft:${id}`, () =>

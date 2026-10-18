@@ -481,6 +481,7 @@ function App() {
     if (!nativeDesktop || !outlook.ready) return;
     setView(outlook.status.account ? "outlook" : "settings");
     setOutlookFolder(defaultOutlookFolder);
+    setSearchOpen(false);
     setSidebar(false);
   }, [outlook.ready, outlook.status.account?.email]);
   const [folder, setFolder] = useState("inbox");
@@ -488,6 +489,7 @@ function App() {
   const [tab, setTab] = useState("important");
   const [sidebar, setSidebar] = useState(false);
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [account, setAccount] = useState("all");
   const [filters, setFilters] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -758,12 +760,20 @@ function App() {
               <Search size={15} />
               <input
                 ref={searchRef}
+                onFocus={() => {
+                  if (nativeDesktop) setSearchOpen(true);
+                }}
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
                   setSelected(null);
                 }}
                 placeholder="Search mail"
+                title={
+                  nativeDesktop
+                    ? "Search all mail: from:alex invoice has:attachment"
+                    : undefined
+                }
                 aria-label="Search mail"
               />
               <kbd>Ctrl K</kbd>
@@ -839,6 +849,7 @@ function App() {
                     selected={view === "outlook" ? outlookFolder.id : ""}
                     onSelect={(folder) => {
                       setOutlookFolder(folder);
+                      setSearchOpen(false);
                       setView("outlook");
                       setQuery("");
                       setSidebar(false);
@@ -936,15 +947,20 @@ function App() {
             {view === "drafts" && outlook.status.account && <OutlookDrafts />}
             {view === "outlook" && outlook.status.account && (
               <OutlookInbox
-                key={`${outlook.status.account.email}:${outlookFolder.id}`}
+                key={`${outlook.status.account.email}:${searchOpen || query.trim() ? "search" : outlookFolder.id}`}
+                forceSearch={searchOpen}
                 folder={outlookFolder}
                 canManage={!!outlook.status.canManage}
                 account={outlook.status.account}
                 dark={dark}
                 query={query}
-                compose={(replyId) =>
+                onQueryChange={(value) => {
+                  setQuery(value);
+                  if (!value.trim()) setSearchOpen(false);
+                }}
+                compose={(replyId, mode) =>
                   void outlookApi
-                    .openCompose(null, replyId || null)
+                    .openCompose(null, replyId || null, mode)
                     .catch((error) => showToast(String(error)))
                 }
               />
@@ -1649,6 +1665,7 @@ function App() {
                     connection={outlook}
                     openInbox={() => {
                       setOutlookFolder(defaultOutlookFolder);
+                      setSearchOpen(false);
                       setQuery("");
                       setView("outlook");
                     }}

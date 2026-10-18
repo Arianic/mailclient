@@ -1,12 +1,23 @@
 # UX review — 18 October 2026
 
-Review of the current connected Outlook client and light/dark development fixture. These are proposed improvements, not implemented features or a request to expand cloud/AI access.
+Review of the current connected Outlook client and light/dark development fixture. The six priorities below were authorized for implementation. The current checkpoint records what is implemented; the original findings remain as historical context. No cloud/AI access was added.
 
-## Completed in this update
+## Current implementation checkpoint
+
+- Quieter reader: compact header, expandable recipients/appearance, relevant image controls and no duplicate inline-image downloads.
+- Archive, move to Deleted Items, folder move, Junk/out of Junk and read/unread, individual/bulk up to 100, with guarded ten-minute session Undo and partial-failure feedback. Junk is a move, not spam-training.
+- Session folder/search snapshots preserve loaded pages, filters, selection and scroll; expanded folders persist and previous/next navigation is available.
+- Incremental local Outlook index, offline bodies, periodic/reconnect refresh and whole-mailbox search. Ranked snippets, phrases, Boolean operators, people/date/folder/read/attachment filters, deterministic common English phrases, typo suggestions, pagination and coverage. See [search guide](../docs/search.md). Indexing is all-history in this version; configurable cache retention remains pending.
+- Indexed conversation history expanded with separators; Reply all, Forward with quoted text and supported original files, Sent rows show recipients.
+- Recipient chips, validation, local contact autocomplete, draft discard, native file drop/picker, up to 20 MB/20 files with upload progress and Done after submission. Rich text, signatures, templates, provider draft editing and schedules remain pending.
+
+No real-mail mutations or sends are performed by automated tests. New native provider interactions and GNOME drop/scaling behavior still require laptop validation. Cache and draft databases are separate from prototype state and settings exports, but not encrypted at rest; credentials remain in Keyring.
+
+## Previous inline-images update
 
 Loaded email images stay inside the body. The duplicate image-download strip is removed. The Attachments list excludes provider-marked inline resources such as logos/signatures, while separate files and deliberately attached photographs remain downloadable. No mail-renderer security policy or image-loading permission changed. One interaction regression test covers body rendering, filtering and genuine attachment downloads. All 34 frontend tests and the production build pass; browser checks cover both themes. Rust code is unchanged.
 
-## Recommended order
+## Original findings and priority order (historical)
 
 1. **Make reading quieter.** Too much vertical space precedes the actual message: image controls, permanent privacy text, status text, attachment instructions and protected-view controls. Keep the subject/sender/date compact; put full recipients, Plain text and Original appearance under a More/details control. Show Load images only when relevant and collapse its explanation after loading. Retain meaningful privacy choices and errors without repeating routine implementation details. Keep real attachment files available in a compact row.
 

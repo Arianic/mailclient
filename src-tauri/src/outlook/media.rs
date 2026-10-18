@@ -21,6 +21,8 @@ pub struct Attachment {
 #[derive(Deserialize)]
 struct Attachments {
     value: Vec<Attachment>,
+    #[serde(rename = "@odata.nextLink")]
+    next: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,6 +203,35 @@ pub fn safe_name(name: &str) -> String {
     }
 }
 impl OutlookService {
+    pub async fn forward_files(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let (_, token) = self.media_context(id).await?;
+        let files = self.attachment_list(id, &token).await?;
+        let mut result = Vec::new();
+        let mut size = 0u64;
+        let mut copied = 0usize;
+        for file in files.into_iter().filter(|f| !f.is_inline) {
+            size += file.size;
+            if size > 20_000_000 {
+                return Err("Original attachments exceed 20 MB. Add the files you want to forward manually.".into());
+            }
+            let response = self
+                .http
+                .get(message_url(id, &["attachments", &file.id, "$value"]))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .map_err(|_| "Could not copy original attachments. Add files before sending.")?;
+            if !response.status().is_success() {
+                return Err(
+                    "Could not copy an original attachment. Add files before sending.".into(),
+                );
+            }
+            let bytes = bounded_bytes(response, 20_000_000 - copied).await?;
+            copied += bytes.len();
+            result.push((safe_name(&file.name), bytes));
+        }
+        Ok(result)
+    }
     async fn media_context(&self, id: &str) -> Result<(String, String), String> {
         let mut session = self.session.lock().await;
         let html = session
@@ -214,17 +245,47 @@ impl OutlookService {
         let token = self.access(&mut session).await?;
         Ok((html, token))
     }
-    async fn attachment_list(&self, id: &str, token: &str) -> Result<Vec<Attachment>, String> {
+    pub(super) async fn attachment_list(
+        &self,
+        id: &str,
+        token: &str,
+    ) -> Result<Vec<Attachment>, String> {
         let url = format!(
             "{}?$top=100&$select=id,name,contentType,size,isInline",
             message_url(id, &["attachments"])
         );
-        let response: Attachments = self.get(&url, token).await?;
-        Ok(response
-            .value
-            .into_iter()
-            .filter(|file| file.kind == "#microsoft.graph.fileAttachment" || file.kind.is_empty())
-            .collect())
+        let mut next = Some(url);
+        let mut files = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        while let Some(url) = next {
+            if !seen.insert(url.clone()) {
+                return Err("Outlook repeated an attachment page".into());
+            }
+            let page: Attachments = self.get(&url, token).await?;
+            files.extend(page.value.into_iter().filter(|file| {
+                file.kind == "#microsoft.graph.fileAttachment" || file.kind.is_empty()
+            }));
+            next = page
+                .next
+                .map(|url| {
+                    let parsed =
+                        reqwest::Url::parse(&url).map_err(|_| "Invalid attachment page")?;
+                    if parsed.scheme() != "https"
+                        || parsed.host_str() != Some("graph.microsoft.com")
+                        || parsed.port_or_known_default() != Some(443)
+                        || !parsed.username().is_empty()
+                        || parsed.password().is_some()
+                        || parsed.fragment().is_some()
+                        || !parsed.path().starts_with("/v1.0/")
+                        || !parsed.path().ends_with("/attachments")
+                    {
+                        return Err("Unsupported attachment page");
+                    }
+                    Ok(parsed.to_string())
+                })
+                .transpose()?;
+        }
+        Ok(files)
     }
     pub async fn attachments(&self, id: String) -> Result<Vec<Attachment>, String> {
         let (_, token) = self.media_context(&id).await?;
@@ -241,8 +302,8 @@ impl OutlookService {
             .iter()
             .find(|file| file.id == attachment_id)
             .ok_or("This file is not an attachment of the opened message")?;
-        if file.size > 10_000_000 {
-            return Err("Attachments over 10 MB are not supported yet.".into());
+        if file.size > 20_000_000 {
+            return Err("Attachments over 20 MB are not supported yet.".into());
         }
         let response = self
             .http
@@ -257,7 +318,7 @@ impl OutlookService {
         }
         Ok((
             safe_name(&file.name),
-            bounded_bytes(response, 10_000_000).await?,
+            bounded_bytes(response, 20_000_000).await?,
         ))
     }
     pub async fn load_images(&self, id: String) -> Result<Images, String> {
@@ -288,7 +349,9 @@ impl OutlookService {
         }
         let requests = all.iter().take(24).cloned().map(|source| {
             let inline = source
-                .strip_prefix("cid:")
+                .get(..4)
+                .filter(|prefix| prefix.eq_ignore_ascii_case("cid:"))
+                .and_then(|_| source.get(4..))
                 .and_then(|value| cid.get(&value.trim_matches(['<', '>']).to_lowercase()))
                 .cloned();
             async move {

@@ -7,11 +7,13 @@ export function SafeMessage({
   text,
   dark,
   images = {},
+  quiet = false,
 }: {
   html?: string;
   text: string;
   dark: boolean;
   images?: Readonly<Record<string, string>>;
+  quiet?: boolean;
 }) {
   const [original, setOriginal] = useState(false);
   const [plain, setPlain] = useState(false);
@@ -22,23 +24,31 @@ export function SafeMessage({
   if (!html) return <div className="message-text">{text}</div>;
   return (
     <div className="safe-message">
-      <div className="message-view-controls">
-        <span>
-          <ShieldCheck size={12} />
-          Protected message view
-        </span>
-        <button onClick={() => setPlain(!plain)}>
-          {plain ? "Formatted view" : "Plain text"}
-        </button>
-        {!plain && (
-          <button
-            aria-pressed={original}
-            onClick={() => setOriginal(!original)}
-          >
-            {original ? "Adapt to theme" : "Original appearance"}
+      <details
+        className={`message-appearance ${quiet ? "quiet" : ""}`}
+        open={!quiet}
+      >
+        {quiet && <summary>Appearance</summary>}
+        <div className="message-view-controls">
+          {!quiet && (
+            <span>
+              <ShieldCheck size={12} />
+              Protected message view
+            </span>
+          )}
+          <button onClick={() => setPlain(!plain)}>
+            {plain ? "Formatted view" : "Plain text"}
           </button>
-        )}
-      </div>
+          {!plain && (
+            <button
+              aria-pressed={original}
+              onClick={() => setOriginal(!original)}
+            >
+              {original ? "Adapt to theme" : "Original appearance"}
+            </button>
+          )}
+        </div>
+      </details>
       {plain ? (
         <div className="message-text">{text}</div>
       ) : (
@@ -50,12 +60,14 @@ export function SafeMessage({
           className="email-frame"
         />
       )}
-      <span className="message-safety-note">
-        <FileText size={11} />
-        {Object.keys(images).length
-          ? "Images loaded for this message. Links remain inactive."
-          : "External images and links are inactive."}
-      </span>
+      {!quiet && (
+        <span className="message-safety-note">
+          <FileText size={11} />
+          {Object.keys(images).length
+            ? "Images loaded for this message. Links remain inactive."
+            : "External images and links are inactive."}
+        </span>
+      )}
     </div>
   );
 }

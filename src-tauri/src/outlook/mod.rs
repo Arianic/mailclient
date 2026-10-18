@@ -1,6 +1,9 @@
+pub mod actions;
 mod auth;
+mod delivery;
 pub mod drafts;
 pub mod folders;
+pub mod index;
 pub mod media;
 mod vault;
 
@@ -37,21 +40,23 @@ const SCOPES: [&str; 3] = [
 pub struct OutlookService {
     http: reqwest::Client,
     vault: Arc<dyn Vault>,
-    session: Mutex<Session>,
+    pub(crate) session: Mutex<Session>,
     canceled: AtomicBool,
 }
 #[derive(Default)]
-struct Session {
+pub(crate) struct Session {
     credential: Option<Credential>,
     access: Option<(String, Instant)>,
-    known_messages: HashMap<String, MessageSummary>,
+    pub(crate) known_messages: HashMap<String, MessageSummary>,
     next_page: Option<String>,
     inbox_view: String,
     inbox_folder: String,
     known_folders: std::collections::HashSet<String>,
     inbox_id: Option<String>,
-    opened_message: Option<Message>,
-    loaded_images: Vec<Vec<u8>>,
+    pages: HashMap<String, String>,
+    undo: HashMap<String, Vec<actions::UndoEntry>>,
+    pub(crate) opened_message: Option<Message>,
+    pub(crate) loaded_images: Vec<Vec<u8>>,
 }
 // Deliberately no Debug: tokens must not appear in diagnostics.
 #[derive(Clone, Serialize, Deserialize)]
@@ -108,6 +113,16 @@ pub struct MessageSummary {
     pub inference_classification: Option<String>,
     #[serde(default)]
     pub reply_to: Vec<Sender>,
+    #[serde(default)]
+    pub to_recipients: Vec<Sender>,
+    #[serde(default)]
+    pub cc_recipients: Vec<Sender>,
+    #[serde(default)]
+    pub bcc_recipients: Vec<Sender>,
+    #[serde(default)]
+    pub parent_folder_id: String,
+    #[serde(default)]
+    pub conversation_id: String,
 }
 #[derive(Deserialize)]
 struct GraphInbox {
@@ -120,6 +135,7 @@ struct GraphInbox {
 pub struct Inbox {
     pub messages: Vec<MessageSummary>,
     pub has_more: bool,
+    pub offline: bool,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,6 +152,10 @@ pub struct Message {
     pub to_recipients: Vec<Sender>,
     #[serde(default)]
     pub cc_recipients: Vec<Sender>,
+    #[serde(default)]
+    pub bcc_recipients: Vec<Sender>,
+    #[serde(default)]
+    pub offline: bool,
 }
 
 fn valid_client_id(value: &str) -> bool {
@@ -470,6 +490,7 @@ impl OutlookService {
                 )
             }
             429 => return Err("Outlook is busy. Wait a little before refreshing again.".into()),
+            410 => return Err("Outlook sync checkpoint expired (410).".into()),
             _ => {
                 return Err(
                     "Outlook could not complete this request. Please try again later.".into(),
@@ -500,12 +521,10 @@ impl OutlookService {
             return Err("Open the folder list before selecting this folder.".into());
         }
         let url = if older {
-            if session.inbox_view != view || session.inbox_folder != folder {
-                return Err("Refresh this inbox view before loading older mail.".into());
-            }
             session
-                .next_page
-                .clone()
+                .pages
+                .get(&format!("{folder}:{view}"))
+                .cloned()
                 .ok_or("All messages in this view have been loaded.")?
         } else {
             let mut url = reqwest::Url::parse(&format!("{GRAPH}/me/mailFolders/")).unwrap();
@@ -514,9 +533,10 @@ impl OutlookService {
                 .pop_if_empty()
                 .push(&folder)
                 .push("messages");
-            url.query_pairs_mut().append_pair("$top", "100")
+            url.query_pairs_mut()
+                .append_pair("$top", "100")
                 .append_pair("$orderby", "receivedDateTime desc")
-                .append_pair("$select", "id,subject,from,replyTo,receivedDateTime,isRead,hasAttachments,inferenceClassification");
+                .append_pair("$select", index::HEADER_FIELDS);
             url.to_string()
         };
         let response: Result<GraphInbox, _> = self.get(&url, &token).await;
@@ -530,9 +550,6 @@ impl OutlookService {
             .next_link
             .map(|url| valid_next_page(&url))
             .transpose()?;
-        if !older {
-            session.known_messages.clear();
-        }
         session.known_messages.extend(
             response
                 .value
@@ -540,6 +557,12 @@ impl OutlookService {
                 .map(|message| (message.id.clone(), message.clone())),
         );
         session.next_page = next_page;
+        let key = format!("{folder}:{view}");
+        if let Some(page) = session.next_page.clone() {
+            session.pages.insert(key, page);
+        } else {
+            session.pages.remove(&key);
+        }
         session.inbox_view = view.clone();
         session.inbox_folder = folder;
         Ok(Inbox {
@@ -553,6 +576,7 @@ impl OutlookService {
                 })
                 .collect(),
             has_more: session.next_page.is_some(),
+            offline: false,
         })
     }
     pub async fn message(&self, id: String) -> Result<Message, String> {
@@ -568,7 +592,7 @@ impl OutlookService {
             .pop_if_empty()
             .push(&id);
         url.query_pairs_mut()
-            .append_pair("$select", "id,body,toRecipients,ccRecipients");
+            .append_pair("$select", "id,body,toRecipients,ccRecipients,bccRecipients");
         let result: Result<Message, String> = self.get(url.as_str(), &token).await;
         if matches!(&result, Err(message) if message == SESSION_EXPIRED) {
             session.access = None;
@@ -736,6 +760,8 @@ mod tests {
                 },
                 to_recipients: Vec::new(),
                 cc_recipients: Vec::new(),
+                bcc_recipients: Vec::new(),
+                offline: false,
             });
         }
         assert!(service

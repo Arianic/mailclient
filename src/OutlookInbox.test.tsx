@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { htmlText, OutlookInbox } from "./OutlookInbox";
+import { htmlText, OutlookInbox, clearOutlookPlaces } from "./OutlookInbox";
 import { outlookApi, type OutlookMessage } from "./outlook";
 
 vi.mock("./outlook", () => ({
@@ -13,6 +13,12 @@ vi.mock("./outlook", () => ({
     images: vi.fn(),
     attachments: vi.fn(),
     downloadAttachment: vi.fn(),
+    indexStatus: vi.fn(),
+    conversation: vi.fn(),
+    cachedFolders: vi.fn(),
+    action: vi.fn(),
+    undo: vi.fn(),
+    search: vi.fn(),
   },
 }));
 let host: HTMLDivElement;
@@ -28,6 +34,20 @@ const summary = {
 };
 
 beforeEach(() => {
+  clearOutlookPlaces();
+  vi.mocked(outlookApi.indexStatus).mockResolvedValue({
+    messages: 100,
+    folders: 3,
+    pending: 0,
+    missingFiles: 0,
+    lastSync: 1,
+    error: null,
+  });
+  vi.mocked(outlookApi.conversation).mockResolvedValue({
+    messages: [],
+    complete: true,
+  });
+  vi.mocked(outlookApi.cachedFolders).mockResolvedValue([]);
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.mocked(outlookApi.inbox).mockResolvedValue({
     messages: [summary],
@@ -41,6 +61,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 async function render(
   canManage = false,
@@ -66,6 +87,205 @@ const click = async (button: HTMLButtonElement) => {
 };
 
 describe("personal Outlook reader", () => {
+  it("searches the whole mailbox with visible coverage and paginates results", async () => {
+    vi.useFakeTimers();
+    const status = {
+      messages: 1200,
+      folders: 8,
+      pending: 0,
+      missingFiles: 0,
+      lastSync: 1,
+      error: null,
+    };
+    vi.mocked(outlookApi.indexStatus).mockResolvedValue(status);
+    vi.mocked(outlookApi.search)
+      .mockResolvedValueOnce({
+        messages: [summary],
+        hasMore: true,
+        total: 1200,
+        snippets: { [summary.id]: "Reservation reference in the body" },
+        suggestions: [],
+        status,
+      })
+      .mockResolvedValue({
+        messages: [
+          {
+            ...summary,
+            id: "older-result",
+            subject: "Older archived reservation",
+          },
+        ],
+        hasMore: false,
+        total: 1200,
+        snippets: {},
+        suggestions: [],
+        status,
+      });
+    await act(async () =>
+      root.render(
+        <OutlookInbox
+          account={account}
+          dark={false}
+          query="body:reservation has:attachment"
+          compose={() => {}}
+        />,
+      ),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(350));
+    expect(outlookApi.inbox).not.toHaveBeenCalled();
+    expect(outlookApi.search).toHaveBeenCalledWith(
+      "body:reservation has:attachment",
+      0,
+      "relevance",
+    );
+    expect(host.textContent).toContain(
+      `1 of ${(1200).toLocaleString()} matches`,
+    );
+    expect(host.textContent).toContain("Reservation reference in the body");
+    await click(
+      Array.from(host.querySelectorAll("button")).find(
+        (button) => button.textContent === "Load more results",
+      )!,
+    );
+    expect(outlookApi.search).toHaveBeenLastCalledWith(
+      "body:reservation has:attachment",
+      1,
+      "relevance",
+    );
+    expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
+  });
+  it("does not show a late result from an earlier search", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: import("./outlook").SearchPage) => void;
+    const status = {
+      messages: 100,
+      folders: 3,
+      pending: 0,
+      missingFiles: 0,
+      lastSync: 1,
+      error: null,
+    };
+    vi.mocked(outlookApi.search).mockImplementation((query) =>
+      query === "first"
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({
+            messages: [{ ...summary, subject: "Second query result" }],
+            hasMore: false,
+            total: 1,
+            snippets: {},
+            suggestions: [],
+            status,
+          }),
+    );
+    const renderQuery = async (query: string) => {
+      await act(async () =>
+        root.render(
+          <OutlookInbox
+            account={account}
+            dark={false}
+            query={query}
+            compose={() => {}}
+          />,
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(350));
+    };
+    await renderQuery("first");
+    await renderQuery("second");
+    await act(async () =>
+      finish({
+        messages: [{ ...summary, subject: "Stale first result" }],
+        hasMore: false,
+        total: 1,
+        snippets: {},
+        suggestions: [],
+        status,
+      }),
+    );
+    expect(host.textContent).toContain("Second query result");
+    expect(host.textContent).not.toContain("Stale first result");
+  });
+  it("keeps failed bulk selections and offers Undo for successful moves", async () => {
+    vi.mocked(outlookApi.inbox).mockResolvedValue({
+      messages: [
+        summary,
+        { ...summary, id: "failed", subject: "Keep this selected" },
+      ],
+      hasMore: false,
+    });
+    vi.mocked(outlookApi.action).mockResolvedValue({
+      ids: [summary.id],
+      failures: [{ id: "failed", error: "Permission denied" }],
+      undo: "undo-token",
+    });
+    vi.mocked(outlookApi.undo).mockResolvedValue({
+      ids: [summary.id],
+      failures: [],
+      undo: null,
+    });
+    await render(true);
+    await click(
+      host.querySelector<HTMLInputElement>(
+        '[aria-label="Select loaded messages"]',
+      )! as unknown as HTMLButtonElement,
+    );
+    await click(
+      host.querySelector<HTMLButtonElement>('[aria-label="Archive"]')!,
+    );
+    expect(outlookApi.action).toHaveBeenCalledWith(
+      [summary.id, "failed"],
+      "archive",
+      null,
+    );
+    expect(host.querySelectorAll(".mail-row")).toHaveLength(1);
+    expect(host.querySelector<HTMLInputElement>(".row-check")!.checked).toBe(
+      true,
+    );
+    expect(host.textContent).toContain("Permission denied");
+    await click(
+      Array.from(host.querySelectorAll("button")).find(
+        (button) => button.textContent === "Undo",
+      )!,
+    );
+    expect(outlookApi.undo).toHaveBeenCalledWith("undo-token");
+    expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
+  });
+  it("restores loaded pages, relevance view and scroll after leaving the view", async () => {
+    await render();
+    await click(
+      Array.from(host.querySelectorAll("button")).find(
+        (button) => button.textContent === "Other",
+      )!,
+    );
+    vi.mocked(outlookApi.inbox).mockResolvedValueOnce({
+      messages: [
+        { ...summary, id: "older", subject: "Older retained message" },
+      ],
+      hasMore: false,
+    });
+    await click(
+      Array.from(host.querySelectorAll("button")).find(
+        (button) => button.textContent === "Load older messages",
+      )!,
+    );
+    const list = host.querySelector<HTMLDivElement>(".message-list")!;
+    await act(async () => {
+      list.scrollTop = 180;
+      list.dispatchEvent(new Event("scroll"));
+    });
+    act(() => root.unmount());
+    root = createRoot(host);
+    await render();
+    expect(host.textContent).toContain("Older retained message");
+    expect(
+      Array.from(host.querySelectorAll("button"))
+        .find((button) => button.textContent === "Other")
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(host.querySelector(".message-list")!.scrollTop).toBe(180);
+  });
   it("fetches a body only on opening and keeps it in the sandbox", async () => {
     vi.mocked(outlookApi.message).mockResolvedValue({
       id: summary.id,
@@ -138,6 +358,7 @@ describe("personal Outlook reader", () => {
       "important",
       true,
       "inbox",
+      1,
     );
     expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
     expect(host.textContent).toContain("Older message");
@@ -150,7 +371,12 @@ describe("personal Outlook reader", () => {
         (button) => button.textContent === "Other",
       )!,
     );
-    expect(outlookApi.inbox).toHaveBeenLastCalledWith("other", false, "inbox");
+    expect(outlookApi.inbox).toHaveBeenLastCalledWith(
+      "other",
+      false,
+      "inbox",
+      0,
+    );
     expect(host.textContent).not.toContain("Older message");
     expect(host.textContent).toContain("Load older messages");
   });
@@ -199,6 +425,10 @@ describe("personal Outlook reader", () => {
         isInline: false,
       },
     ]);
+    vi.mocked(outlookApi.inbox).mockResolvedValueOnce({
+      messages: [{ ...summary, hasAttachments: true }],
+      hasMore: false,
+    });
     await render();
     await click(host.querySelector<HTMLButtonElement>(".row-main")!);
     await click(
@@ -275,7 +505,12 @@ describe("personal Outlook reader", () => {
       unreadItemCount: 0,
       childFolderCount: 0,
     });
-    expect(outlookApi.inbox).toHaveBeenCalledWith("all", false, "sent-folder");
+    expect(outlookApi.inbox).toHaveBeenCalledWith(
+      "all",
+      false,
+      "sent-folder",
+      0,
+    );
     expect(host.querySelector('[aria-label="Relevance view"]')).toBeNull();
     expect(host.querySelectorAll(".mail-row")).toHaveLength(2);
     expect(host.querySelector("h1")?.textContent).toBe("Sent Items");

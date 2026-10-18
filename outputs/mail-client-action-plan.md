@@ -1,5 +1,9 @@
 # Personal mail client — action plan
 
+## Progress — search and daily Outlook UX
+
+The authorized UX/search milestone is implemented: local FTS whole-mailbox search, deterministic common phrase interpretation, filters/ranking/snippets/spelling hints and visible indexing coverage; per-folder delta caching/offline bodies; periodic refresh; everyday single/bulk mail actions and guarded session Undo; navigation snapshots; indexed conversation history; Reply all/Forward; recipient chips/local autocomplete; discard; native attachment drop and larger uploads. See [search behavior and limits](../docs/search.md) and [UX checkpoint](ux-review.md). This connects only the existing personal Outlook account, consumes no AI allowance and does not complete the broader multi-provider/calendar/AI milestones below. Native round trips require laptop checks.
+
 Prepared 17 October 2026. Target: CachyOS with GNOME and WhiteSur. This is an implementation plan, not a claim that the client or its integrations have been built.
 
 Latest refinement, 18 October: the client now browses actual Outlook folders/subfolders, optionally syncs read status with Mail.ReadWrite, and supports durable local draft attachments up to 2 MB/20 files. Compose focus styling is quieter and Cc/Bcc appear on demand. Existing send access is preserved during read-status consent. 64 automated tests and both frontend/Linux builds pass; new consent, live attachment receipt and read-state propagation need laptop checks. See the current checkpoint and Outlook setup guide for limits.

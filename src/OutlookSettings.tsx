@@ -1,6 +1,7 @@
 import { ArrowUpRight, LockKeyhole } from "lucide-react";
 import { nativeDesktop } from "./desktop";
 import type { OutlookConnection } from "./outlook";
+import { IndexSettings } from "./IndexSettings";
 
 export function OutlookSettings({
   connection,
@@ -45,8 +46,8 @@ export function OutlookSettings({
               onClick={() => void connect(false, true)}
             >
               {status.canManage
-                ? "Review read-status permission"
-                : "Enable read-status sync"}
+                ? "Review mail-actions permission"
+                : "Enable mail actions & read sync"}
             </button>
             <button
               className="primary-button"
@@ -81,9 +82,10 @@ export function OutlookSettings({
           </div>
           <p className="settings-note">
             {status.canManage
-              ? "Opening a message marks it as read in Outlook."
-              : "Read-status sync needs Microsoft Mail.ReadWrite permission. Sending permission is kept when you enable it."}
+              ? "Mail actions, larger uploads and read-status sync are enabled. Delete moves mail to Deleted Items."
+              : "Mail actions and larger uploads need Microsoft Mail.ReadWrite permission. Your sending access is preserved."}
           </p>
+          <IndexSettings />
         </>
       ) : (
         <>

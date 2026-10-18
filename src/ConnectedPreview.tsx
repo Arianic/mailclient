@@ -74,26 +74,126 @@ const messages: OutlookSummary[] = Array.from({ length: 140 }, (_, index) => {
   const sample = initialMail[index % initialMail.length];
   return {
     id: `preview-${index}`,
-    subject: `${sample.subject}${index >= initialMail.length ? ` · ${index + 1}` : ""}`,
+    subject: `${index % 4 === 1 ? "Invoice for September booking" : sample.subject}${index >= initialMail.length ? ` · ${index + 1}` : ""}`,
     from: {
       emailAddress: { name: sample.sender, address: "sender@example.test" },
     },
-    receivedDateTime: "2026-10-18T10:00:00Z",
+    receivedDateTime: "2026-09-18T10:00:00Z",
+    parentFolderId: index % 5 === 1 ? "folder-0" : "inbox",
+    toRecipients: [
+      { emailAddress: { name: "Alex Morgan", address: "alex@example.test" } },
+    ],
+    conversationId: `thread-${index}`,
     isRead: index % 3 === 0,
     hasAttachments: true,
     inferenceClassification: index % 2 ? "other" : "focused",
   };
 });
-outlookApi.inbox = async (view = "important", older = false) => ({
-  messages: messages
-    .filter(
-      (message) =>
-        (message.inferenceClassification === "focused") ===
-          (view === "important") || view === "all",
-    )
-    .slice(older ? 10 : 0, older ? 70 : 10),
-  hasMore: !older,
+outlookApi.indexStatus = async () => ({
+  messages: 140,
+  folders: 7,
+  pending: 0,
+  missingFiles: 0,
+  lastSync: 1,
+  error: null,
 });
+outlookApi.indexControl = async () => outlookApi.indexStatus();
+outlookApi.sync = async () => false;
+outlookApi.cachedFolders = async () => outlookApi.folders();
+outlookApi.contacts = async (query) =>
+  [
+    { name: "Alex Morgan", address: "alex@example.test" },
+    { name: "Maya Chen", address: "maya@example.test" },
+  ].filter((contact) =>
+    `${contact.name} ${contact.address}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+outlookApi.inbox = async (
+  view = "important",
+  older = false,
+  folder = "inbox",
+  offset = 0,
+) => {
+  const all = messages.filter(
+    (message) =>
+      (folder === "inbox"
+        ? message.parentFolderId === "inbox"
+        : message.parentFolderId === folder) &&
+      (view === "all" ||
+        (message.inferenceClassification === "focused") ===
+          (view === "important")),
+  );
+  return {
+    messages: all.slice(older ? offset : 0, (older ? offset : 0) + 10),
+    hasMore: (older ? offset : 0) + 10 < all.length,
+  };
+};
+outlookApi.search = async (query, offset = 0, sort = "relevance") => {
+  const words = query
+    .replace(
+      /(?:from|to|subject|body|filename|after|before|folder|is|has):(?:"[^"]*"|\S+)/g,
+      "",
+    )
+    .replaceAll('"', "")
+    .trim()
+    .toLowerCase();
+  let all = messages.filter(
+    (message) =>
+      !words ||
+      `${message.subject} ${message.from?.emailAddress.name}`
+        .toLowerCase()
+        .includes(words),
+  );
+  if (sort === "oldest") all = [...all].reverse();
+  return {
+    messages: all.slice(offset, offset + 10),
+    hasMore: offset + 10 < all.length,
+    total: all.length,
+    snippets: Object.fromEntries(
+      all.map((message) => [
+        message.id,
+        "Your September invoice includes the booking reference, payment details and attached receipt.",
+      ]),
+    ),
+    suggestions: all.length ? [] : ["invoice"],
+    status: await outlookApi.indexStatus(),
+  };
+};
+const savedActions = new Map<string, typeof messages>();
+outlookApi.action = async (ids, action, destination) => {
+  const before = messages
+    .filter((message) => ids.includes(message.id))
+    .map((message) => ({ ...message }));
+  savedActions.set("fixture-undo", before);
+  for (const message of messages.filter((message) =>
+    ids.includes(message.id),
+  )) {
+    if (action === "read" || action === "unread")
+      message.isRead = action === "read";
+    else
+      message.parentFolderId =
+        destination ||
+        {
+          archive: "folder-1",
+          delete: "folder-3",
+          junk: "folder-2",
+          notJunk: "inbox",
+        }[action] ||
+        "inbox";
+  }
+  return { ids, failures: [], undo: "fixture-undo" };
+};
+outlookApi.undo = async () => {
+  const saved = savedActions.get("fixture-undo") || [];
+  for (const before of saved) {
+    const message = messages.find((message) => message.id === before.id);
+    if (message) Object.assign(message, before);
+  }
+  return { ids: saved.map((message) => message.id), failures: [], undo: null };
+};
+outlookApi.discardDraft = async () => {};
+outlookApi.conversation = async (id) => ({ messages: [], complete: true });
 outlookApi.message = async (id) => ({
   id,
   body: {
@@ -204,6 +304,7 @@ export function ConnectedPreview() {
               account={{ email: "you@outlook.example", displayName: "Example" }}
               dark={dark}
               query={query}
+              onQueryChange={setQuery}
               compose={() => {}}
             />
           </main>
