@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-outlook-reader"
+description = "The main local Mail window may connect one personal Outlook account and read recent inbox messages."
+commands.allow = ["outlook_status", "outlook_connect", "outlook_cancel", "outlook_disconnect", "outlook_inbox", "outlook_message"]

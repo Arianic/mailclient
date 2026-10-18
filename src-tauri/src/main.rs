@@ -1,9 +1,71 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+mod outlook;
 #[allow(dead_code)]
 mod privacy;
 mod storage;
+use tauri_plugin_opener::OpenerExt;
+
+fn main_window(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() == "main" {
+        Ok(())
+    } else {
+        Err("Account connections are available only in the main Mail window".into())
+    }
+}
+
+#[tauri::command]
+async fn outlook_status(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+) -> Result<outlook::Status, String> {
+    main_window(&window)?;
+    app.state::<outlook::OutlookService>().status().await
+}
+#[tauri::command]
+async fn outlook_connect(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    client_id: String,
+) -> Result<outlook::Status, String> {
+    main_window(&window)?;
+    app.state::<outlook::OutlookService>()
+        .connect(client_id, |url| {
+            app.opener()
+                .open_url(url, None::<&str>)
+                .map_err(|_| "Could not open your browser for Microsoft sign-in".into())
+        })
+        .await
+}
+#[tauri::command]
+fn outlook_cancel(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
+    main_window(&window)?;
+    app.state::<outlook::OutlookService>().cancel();
+    Ok(())
+}
+#[tauri::command]
+async fn outlook_disconnect(app: tauri::AppHandle, window: WebviewWindow) -> Result<(), String> {
+    main_window(&window)?;
+    app.state::<outlook::OutlookService>().disconnect().await
+}
+#[tauri::command]
+async fn outlook_inbox(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+) -> Result<outlook::Inbox, String> {
+    main_window(&window)?;
+    app.state::<outlook::OutlookService>().inbox().await
+}
+#[tauri::command]
+async fn outlook_message(
+    app: tauri::AppHandle,
+    window: WebviewWindow,
+    id: String,
+) -> Result<outlook::Message, String> {
+    main_window(&window)?;
+    app.state::<outlook::OutlookService>().message(id).await
+}
 
 #[tauri::command]
 fn load_workspace(
@@ -134,6 +196,11 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .setup(|app| {
             let directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&directory)?;
@@ -145,6 +212,7 @@ fn main() {
             let database = storage::Database::open(&directory.join("workspace.sqlite"))
                 .map_err(std::io::Error::other)?;
             app.manage(storage::WorkspaceStore(std::sync::Mutex::new(database)));
+            app.manage(outlook::OutlookService::new().map_err(std::io::Error::other)?);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -152,7 +220,13 @@ fn main() {
             quit_app,
             load_workspace,
             store_value,
-            remove_value
+            remove_value,
+            outlook_status,
+            outlook_connect,
+            outlook_cancel,
+            outlook_disconnect,
+            outlook_inbox,
+            outlook_message
         ])
         .on_page_load(|webview, payload| {
             #[cfg(debug_assertions)]

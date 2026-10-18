@@ -49,6 +49,9 @@ import {
 import "./styles.css";
 import { SafeMessage } from "./SafeMessage";
 import { ThemedSelect } from "./ThemedSelect";
+import { useOutlook } from "./outlook";
+import { OutlookSettings } from "./OutlookSettings";
+import { OutlookInbox } from "./OutlookInbox";
 import {
   dragNativeWindow,
   nativeDesktop,
@@ -460,6 +463,7 @@ function Composer({
 
 function App() {
   const { theme, setTheme, dark } = useTheme();
+  const outlook = useOutlook();
   const [density, setDensity] = useStored("mail-density", "compact");
   const [mails, setMails] = useStored<Mail[]>("mail-messages-v1", initialMail);
   const [drafts, setDrafts] = useStored<Draft[]>("mail-drafts", []);
@@ -467,7 +471,9 @@ function App() {
     "mail-events",
     initialEvents,
   );
-  const [view, setView] = useState<"mail" | "calendar" | "settings">("mail");
+  const [view, setView] = useState<
+    "mail" | "outlook" | "calendar" | "settings"
+  >("mail");
   const [folder, setFolder] = useState("inbox");
   const [tab, setTab] = useState("important");
   const [sidebar, setSidebar] = useState(false);
@@ -509,7 +515,7 @@ function App() {
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        setView("mail");
+        if (view !== "outlook") setView("mail");
         searchRef.current?.focus();
       }
       if (e.key === "Escape") {
@@ -522,7 +528,7 @@ function App() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [view]);
   const patch = (id: string, data: Partial<Mail>) =>
     setMails((ms) => ms.map((m) => (m.id === id ? { ...m, ...data } : m)));
   const openMail = (mail: Mail) => {
@@ -624,7 +630,7 @@ function App() {
     waiting: "Waiting",
   };
   const setSection = (section: "mail" | "calendar") => {
-    setView(section);
+    setView(section === "mail" && outlook.status.account ? "outlook" : section);
     setSelected(null);
     setMore(false);
   };
@@ -685,7 +691,9 @@ function App() {
           </span>
           <div className="app-switch" aria-label="Application view">
             <button
-              className={view === "mail" ? "selected" : ""}
+              className={
+                view === "mail" || view === "outlook" ? "selected" : ""
+              }
               onClick={() => setSection("mail")}
             >
               <MailIcon size={14} />
@@ -700,7 +708,7 @@ function App() {
             </button>
           </div>
           <div className="grow" />
-          {view === "mail" && (
+          {(view === "mail" || view === "outlook") && (
             <label className="search-field">
               <Search size={15} />
               <input
@@ -729,7 +737,17 @@ function App() {
           <button
             className="compose-button"
             onClick={() => openCompose()}
-            aria-label="Compose new message"
+            disabled={view === "outlook"}
+            title={
+              view === "outlook"
+                ? "Sending is unavailable in read-only Outlook"
+                : undefined
+            }
+            aria-label={
+              view === "outlook"
+                ? "Compose unavailable in read-only Outlook"
+                : "Compose new message"
+            }
           >
             <SquarePen size={17} />
             <span>Compose</span>
@@ -753,6 +771,20 @@ function App() {
                     <PanelLeftClose size={15} />
                   </IconButton>
                 </div>
+                {outlook.status.account && (
+                  <button
+                    className={`nav-item ${view === "outlook" ? "selected" : ""}`}
+                    onClick={() => {
+                      setView("outlook");
+                      setSidebar(false);
+                      setQuery("");
+                    }}
+                  >
+                    <span className="account-dot outlook-dot" />
+                    Outlook inbox
+                  </button>
+                )}
+                <div className="sidebar-label">Sample mailboxes</div>
                 {[
                   ["inbox", Inbox, "Inbox"],
                   ["drafts", FileText, "Drafts"],
@@ -790,7 +822,7 @@ function App() {
                   <Clock3 size={17} />
                   Waiting
                 </button>
-                <div className="sidebar-label">Accounts</div>
+                <div className="sidebar-label">Sample accounts</div>
                 {Object.entries(accounts).map(([id, a]) => (
                   <button
                     key={id}
@@ -818,6 +850,17 @@ function App() {
             </>
           )}
           <main className="main-content">
+            {view === "outlook" && outlook.status.account && (
+              <OutlookInbox
+                account={outlook.status.account}
+                dark={dark}
+                query={query}
+                sampleInbox={() => {
+                  setView("mail");
+                  setQuery("");
+                }}
+              />
+            )}
             {view === "mail" && !selected && (
               <>
                 <div className="page-heading">
@@ -1514,6 +1557,13 @@ function App() {
                   </div>
                 </div>
                 <div className="settings-grid">
+                  <OutlookSettings
+                    connection={outlook}
+                    openInbox={() => {
+                      setQuery("");
+                      setView("outlook");
+                    }}
+                  />
                   <section className="settings-card">
                     <h2>
                       <SlidersHorizontal size={18} />
@@ -1583,9 +1633,9 @@ function App() {
                       </div>
                     ))}
                     <p className="settings-note">
-                      AI is not connected. No sample messages are sent to an AI
-                      service. Real account access and these privacy controls
-                      will be implemented in the application backend.
+                      AI is not connected. No messages or account details are
+                      sent to an AI service. Work accounts remain excluded from
+                      cloud AI.
                     </p>
                   </section>
                   <section className="settings-card">
@@ -1594,7 +1644,7 @@ function App() {
                       Connected services
                     </h2>
                     {[
-                      "Gmail & Outlook",
+                      "Gmail",
                       "Work IMAP",
                       "Google Calendar",
                       "Nextcloud",
@@ -1617,8 +1667,10 @@ function App() {
                     </p>
                     <p>
                       Changes are saved only on this device. Mail delivery,
-                      synchronization, rich text editing, AI, and service
-                      connections are future implementation stages.
+                      background synchronization, rich text editing, AI, and
+                      other service connections are future implementation
+                      stages. Personal Outlook now has a separate read-only
+                      connection.
                     </p>
                     <button
                       className="soft-button"
@@ -1662,7 +1714,7 @@ function App() {
         <footer className="window-footer">
           <button onClick={() => navigate("inbox")}>
             <span className="small-status-dot" />
-            Design preview
+            {view === "outlook" ? "Outlook · read-only" : "Sample inbox"}
           </button>
           <span>
             {view === "calendar"
@@ -1670,7 +1722,7 @@ function App() {
               : "All accounts. One calm place."}
           </span>
           <button onClick={() => setView("settings")}>
-            Local sample data
+            {view === "outlook" ? "Account settings" : "Local sample data"}
             <ChevronRight size={12} />
           </button>
         </footer>

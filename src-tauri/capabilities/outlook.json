@@ -1,0 +1,6 @@
+{
+  "identifier": "outlook-main-window",
+  "description": "Read-only Outlook commands for the locally bundled main window only.",
+  "windows": ["main"],
+  "permissions": ["allow-outlook-reader"]
+}

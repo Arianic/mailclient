@@ -1,6 +1,6 @@
 # Mail
 
-A personal mail client for CachyOS/GNOME, developed on Windows 11 with WSL2. Current milestone: interactive prototype plus an initial Tauri Linux desktop shell, using synthetic data. No real accounts or AI services are connected.
+A personal mail client for CachyOS/GNOME, developed on Windows 11 with WSL2. Current milestone: interactive prototype, Tauri Linux desktop shell and initial read-only personal Outlook connection. Real sign-in requires your own Microsoft app registration; no AI service is connected. Sample mail remains separate.
 
 ## Run the prototype
 
@@ -17,7 +17,7 @@ Open the local address shown in the terminal (normally http://127.0.0.1:5173). T
 npm run build
 ```
 
-The browser preview remains useful for design work. The initial Tauri shell now builds on Linux, with real window controls, separate compose windows, close-to-background, single-instance reopening and an explicit Quit action. Formatted sample mail uses a sanitized, sandboxed renderer. GNOME keyring, autostart, real authentication and synchronization remain pending. See [Linux desktop setup and validation](docs/linux-desktop.md) for running the native app and the remaining laptop checks.
+The browser preview remains useful for design work. The Tauri shell builds on Linux, with real window controls, separate compose windows, close-to-background, single-instance reopening and an explicit Quit action. Formatted mail uses a sanitized, sandboxed renderer. Personal Outlook sign-in, GNOME Keyring token storage and an initial recent-inbox reader are implemented for the desktop app; live verification needs your registration. Autostart and background synchronization remain pending. See [Linux desktop setup](docs/linux-desktop.md) and [Outlook setup](docs/outlook-setup.md).
 
 ## Try it
 
@@ -31,13 +31,13 @@ The browser preview remains useful for design work. The initial Tauri shell now 
 - Account colors: Gmail yellow, Outlook blue, work IMAP green, adapted for light and dark themes.
 - Open the Studio North sample for formatted email, blocked remote-image placeholders, Original appearance and Plain text controls.
 
-All sample addresses use reserved example domains. Attachments only store selected filenames; nothing is uploaded. Sending and remote integrations are clearly marked as previews. The composer uses plain text with formatting markers while rich-text composition is pending.
+All sample addresses use reserved example domains. Sample attachments only store filenames; nothing is uploaded. The composer remains a plain-text preview and never sends mail. The separate Outlook reader can fetch real messages only after secure user sign-in; no write/send permission is requested. Fetched messages stay in memory and are not mixed into the sample store.
 
 ## Local state and reset
 
 Sample mail changes, drafts, events and appearance preferences live in this browser's localStorage for the local preview origin. This is suitable only for synthetic prototype data, not real email credentials or private mail. To reset, clear site data for the local preview origin using your browser settings. No analytics or external assets are loaded by the prototype.
 
-The native shell now stores sample data and preferences in a local SQLite workspace, under the operating system's app-data directory for `dev.personal.mail`. Drafts are stored separately and updates synchronize across application windows. Save failures remain visible and can be retried; compose windows wait for pending saves before closing. The browser preview retains its separate localStorage data. No credentials belong in either store; secure account credentials and a normalized real-mail cache are future work.
+The native shell stores sample data and preferences in a local SQLite workspace, under the operating system's app-data directory for `dev.personal.mail`. Drafts are stored separately and updates synchronize across application windows. Save failures remain visible and can be retried; compose windows wait for pending saves before closing. The browser preview retains its separate localStorage data. Neither store contains credentials. Personal Outlook refresh credentials are saved only in GNOME Keyring. A normalized offline real-mail cache is future work.
 
 ## Project decisions
 

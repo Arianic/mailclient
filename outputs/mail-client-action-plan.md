@@ -2,6 +2,8 @@
 
 Prepared 17 October 2026. Target: CachyOS with GNOME and WhiteSur. This is an implementation plan, not a claim that the client or its integrations have been built.
 
+Latest progress, 18 October: the user has confirmed the initial shell and theme-aware dropdowns work on CachyOS. A first personal Outlook sign-in/read-only reader is now implemented with browser PKCE sign-in, GNOME Keyring credentials and memory-only recent mail. Automated checks and builds pass; actual Microsoft consent, Secret Service access and live messages still require the user-owned registration described in `../docs/outlook-setup.md`. This is a limited provider proof, not completed multi-account synchronization. See `prototype-status.md` for current scope; the older progress paragraphs below describe earlier checkpoints.
+
 Development environment clarification: all development happens on the user's Windows 11 machine with WSL2. The CachyOS laptop is a Git-pull-and-test target, not the development workstation. Windows support is not added to the product scope by this arrangement.
 
 Current progress: an interactive visual prototype now exists and passes its type/production build check. See `prototype-status.md` in this directory for implemented interactions and verification. Native shell, provider integrations, security boundaries and GNOME validation remain pending; the visual prototype advances the design phase while those prerequisites are still open.

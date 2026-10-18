@@ -8,12 +8,16 @@ Install Node.js 22.12 or newer (24 LTS recommended), npm, a current stable Rust/
 
 ```sh
 sudo pacman -S --needed base-devel pkgconf rust nodejs npm webkit2gtk-4.1 openssl librsvg
+git clone https://github.com/Arianic/mailclient.git
+cd mailclient
 npm ci
 npm run test
 npm run desktop:dev
 ```
 
 The setup command belongs on the laptop; it has not been run there. Review package availability for your installed snapshot. No accounts need to be connected to test the shell.
+
+If already cloned, enter that existing folder instead of cloning again. Run all `npm` commands in the folder containing `package.json`. For personal Outlook sign-in, follow [the Outlook setup guide](outlook-setup.md); GNOME Keyring must be available in your desktop session.
 
 To compile the local desktop executable:
 
@@ -47,13 +51,13 @@ Run the resulting binary in a user session with a session D-Bus. WSLg provides a
 - Open the Studio North sample email: formatted content loads, remote image is replaced, Original appearance and Plain text work.
 - Verify unreadable/cut-off email content can be read by scrolling inside the protected message view. Automatic frame sizing and trusted-sender image loading are future work.
 
-GNOME keyring, autostart, notification delivery, real blur and real mailbox integration remain pending. The current shell uses the opaque fallback; it does not enable compositor effects or change GNOME settings.
+GNOME Keyring and an initial personal Outlook reader are implemented; actual sign-in/keyring checks need your Microsoft registration and laptop session. Autostart, notification delivery, real blur and other mailbox integrations remain pending. The current shell uses the opaque fallback; it does not enable compositor effects or change GNOME settings.
 
 ## Local storage and privacy foundations
 
 The native shell uses `workspace.sqlite` in its OS app-data directory. On Linux the application directory is restricted to its owner. SQLite uses a versioned schema, WAL and full synchronization. Preferences, sample mail state and sample calendar data are persisted; each draft is a separate record so simultaneous compose windows do not overwrite unrelated drafts. Windows receive revisioned updates, ignore stale events and show persistent save failures. Closing a compose window flushes its draft first.
 
-The browser preview still uses localStorage and does not share its sample data with the native app. No credentials are stored in SQLite. The database is not encrypted at rest; keyring token protection and a real-mail storage schema are not implemented yet.
+The browser preview still uses localStorage and does not share its sample data with the native app. No credentials are stored in SQLite. The database is not encrypted at rest. Outlook refresh credentials are kept separately in Secret Service/GNOME Keyring; its access token and fetched messages stay in memory. An offline real-mail cache/schema is still pending.
 
 The Rust privacy module prepares future cloud payloads: automatic personal relevance input excludes message bodies; manual summary/reply requires an explicit body request; work accounts and personal messages marked as containing derived work material are rejected. No cloud dispatcher exists yet. Future adapters must resolve account identity/provenance from trusted backend records and use this boundary; these tests do not claim that real provider or AI integrations have already been completed.
 
