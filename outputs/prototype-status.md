@@ -1,0 +1,35 @@
+# Mail development checkpoint — 18 October 2026
+
+The initial Linux shell now builds and loads both its bundled application document and native SQLite workspace during a software-rendered WSLg startup check. This does not yet validate native GNOME interactions or appearance.
+
+Implemented since the first prototype:
+
+- Gmail yellow, Outlook blue and work IMAP green throughout the interface, with theme-specific contrast.
+- Tauri shell with custom window controls, separate compose windows, close-to-background, single-instance reopening, window-state restoration and explicit Quit.
+- Protected formatted-message view: sanitization, opaque-origin sandbox, restrictive content policies, blocked remote images/scripts/forms/navigation, and safe Original appearance/Plain text toggles.
+- Native SQLite persistence with separate draft records, revisioned updates between windows, visible save failures and retry. Compose windows flush drafts before closing. Quit asks to close open compose windows first.
+- Backend privacy-payload foundation: automatic personal relevance input excludes bodies; manual summary/reply requires explicit body sharing; work mail and flagged derived work content are rejected. There is no connected AI dispatcher yet.
+
+Verification: 11 frontend tests and 9 Rust tests pass. The production build passes. Tests cover HTML safety, simultaneous drafts, save failures, stale updates, database reopening, schema versions and privacy policy. The icon library produces non-blocking client-directive bundler notices. Browser checks also cover save-before-close and updated appearance.
+
+Pending: CachyOS/GNOME window-interaction and styling checks; keyring; autostart; real notifications and blur; real account sign-in/synchronization; mail delivery/scheduling; full calendar synchronization; Nextcloud; rich text; rules; plugins. Day/Week calendar views remain fixture-date agenda sketches. Normal accelerated WSLg startup reported graphics-driver errors; software rendering reached the expected startup signals, with warnings about unavailable desktop services.
+
+Outlook is confirmed to be a personal Microsoft account. No real account or AI service is connected. Browser state remains in localStorage; the native shell uses its own SQLite workspace. Credentials do not belong in either store. The native database is not encrypted at rest.
+
+Run `npm ci` and `npm run dev` for the browser preview. Linux build/setup instructions and the laptop checklist are in `docs/linux-desktop.md` in the source repository.
+
+## First prototype — historical record
+
+The following describes the original browser-only checkpoint and is superseded by the status above.
+
+The project now contains an interactive React/TypeScript visual prototype for the agreed Mail design. Run `npm ci` followed by `npm run dev` from the project directory. The source runs on Windows and Linux; the final desktop application remains targeted at CachyOS/GNOME.
+
+Implemented in the preview: light/dark/system appearance, adjustable inbox density, a unified sample inbox, account and unread filters, text search, collapsible navigation, expanded conversations, stars and action categories, archive/trash with undo, separate compose windows with local draft saving, and a sample calendar with event editing.
+
+Not yet implemented: native desktop shell, actual background services, real mail or calendar synchronization, delivery/scheduling, attachment upload/download, rich-text editing, Nextcloud, AI, or plugins. The calendar's Day and Week views are early agenda sketches anchored to the fixture date. Settings accurately identify disconnected services. Sample state is stored in the browser only.
+
+Next milestone: review and refine this appearance, then validate the Tauri shell and safe email rendering in WSL2 and on the CachyOS laptop before connecting accounts.
+
+Verification completed: production build and TypeScript check; browser inspection in light and dark; conversation opening; archive and undo; text search; editing and saving a calendar event; standalone composer fields; draft autosave and restoration after reload; draft visibility in the main window. Browser error logs were empty during these checks. Screenshots are saved beside this document as `mail-light.png` and `mail-dark.png`.
+
+The available WSL distributions were identified as Kali Linux and Docker Desktop. Their application build dependencies have not yet been configured. No native CachyOS behavior has been verified.

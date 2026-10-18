@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-desktop-commands"
+description = "Trusted application windows may open compose windows and quit Mail."
+commands.allow = ["open_compose", "quit_app", "load_workspace", "store_value", "remove_value"]
